@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Plus, Edit3, Trash2, Settings, ChevronDown, ChevronRight } from 'lucide-react';
 import type { Category, SubCategory } from '../types';
 import EmojiPicker from './EmojiPicker';
+import { useAuth } from '../contexts/AuthContext';
 
 interface CategoryManagementProps {
   isOpen: boolean;
@@ -36,6 +37,7 @@ export default function CategoryManagement({
   onUpdateSubCategory,
   onDeleteSubCategory
 }: CategoryManagementProps) {
+  const { user } = useAuth();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newCategory, setNewCategory] = useState({
     name: '', color: PRESET_COLORS[0], icon: '', display_order: 0
@@ -67,10 +69,10 @@ export default function CategoryManagement({
   }, [categories]);
 
   const handleAddCategory = async () => {
-    if (!newCategory.name.trim()) return;
+    if (!newCategory.name.trim() || !user) return;
     setIsSubmitting(true);
     try {
-      await onAddCategory(newCategory);
+      await onAddCategory({ ...newCategory, user_id: user.id });
       setNewCategory({ name: '', color: PRESET_COLORS[0], icon: '', display_order: 0 });
     } finally {
       setIsSubmitting(false);
@@ -88,10 +90,10 @@ export default function CategoryManagement({
   };
 
   const handleAddSubCategory = async () => {
-    if (!newSubCategory.name.trim()) return;
+    if (!newSubCategory.name.trim() || !user) return;
     setIsSubmitting(true);
     try {
-      await onAddSubCategory(newSubCategory);
+      await onAddSubCategory({ ...newSubCategory, user_id: user.id });
       setNewSubCategory({ name: '', color: PRESET_COLORS[0], icon: '', parent_category_id: '', display_order: 0 });
       setAddingSubForCategory(null);
     } finally {
