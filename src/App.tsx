@@ -713,6 +713,8 @@ function TodoApp() {
                 </button>
                 {categories.map(category => {
                   const categoryTodos = todos.filter(todo => todo.category === category.name);
+                  const completedCategoryTodos = categoryTodos.filter(todo => todo.completed);
+                  const incompleteCategoryTodos = categoryTodos.filter(todo => !todo.completed);
                   const categoryInfo = getCategoryInfo(category.name);
 
                   return (
@@ -744,7 +746,7 @@ function TodoApp() {
                           ? 'bg-white/20 text-white'
                           : isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600'
                       }`}>
-                        {categoryTodos.length}
+                        {incompleteCategoryTodos.length}/{completedCategoryTodos.length}
                       </span>
                     </button>
                   );
@@ -788,6 +790,8 @@ function TodoApp() {
                     })
                     .map(subcategory => {
                       const subcategoryTodos = todos.filter(todo => todo.subcategory_id === subcategory.id);
+                      const completedSubcategoryTodos = subcategoryTodos.filter(todo => todo.completed);
+                      const incompleteSubcategoryTodos = subcategoryTodos.filter(todo => !todo.completed);
 
                       return (
                         <button
@@ -815,7 +819,7 @@ function TodoApp() {
                               ? 'bg-white/20 text-white'
                               : isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600'
                           }`}>
-                            {subcategoryTodos.length}
+                            {incompleteSubcategoryTodos.length}/{completedSubcategoryTodos.length}
                           </span>
                         </button>
                       );
