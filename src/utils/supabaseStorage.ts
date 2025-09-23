@@ -23,9 +23,17 @@ class SupabaseStorage {
   async getTodos(): Promise<Todo[]> {
     try {
       if (this.isOnline) {
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+          // 인증되지 않은 사용자는 로컬 캐시만 사용
+          return this.loadFromLocalStorage();
+        }
+
         const { data, error } = await supabase
           .from('todos')
           .select('*')
+          .eq('user_id', user.id)
           .order('created_at', { ascending: false });
 
         if (error) throw error;
@@ -52,12 +60,23 @@ class SupabaseStorage {
     }
   }
 
-  async addTodo(todo: Omit<Todo, 'id' | 'created_at' | 'updated_at'>): Promise<Todo | null> {
+  async addTodo(todo: Omit<Todo, 'id' | 'created_at' | 'updated_at' | 'user_id'>): Promise<Todo | null> {
     try {
       if (this.isOnline) {
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+          throw new Error('User not authenticated');
+        }
+
+        const todoWithUser = {
+          ...todo,
+          user_id: user.id,
+        };
+
         const { data, error } = await supabase
           .from('todos')
-          .insert([todo])
+          .insert([todoWithUser])
           .select()
           .single();
 
@@ -71,6 +90,7 @@ class SupabaseStorage {
         const tempTodo: Todo = {
           ...todo,
           id: `temp_${Date.now()}`,
+          user_id: 'temp_user',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
@@ -88,10 +108,17 @@ class SupabaseStorage {
   async updateTodo(id: string, updates: Partial<Todo>): Promise<Todo | null> {
     try {
       if (this.isOnline) {
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+          throw new Error('User not authenticated');
+        }
+
         const { data, error } = await supabase
           .from('todos')
           .update(updates)
           .eq('id', id)
+          .eq('user_id', user.id)
           .select()
           .single();
 
@@ -126,10 +153,17 @@ class SupabaseStorage {
   async deleteTodo(id: string): Promise<boolean> {
     try {
       if (this.isOnline) {
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+          throw new Error('User not authenticated');
+        }
+
         const { error } = await supabase
           .from('todos')
           .delete()
-          .eq('id', id);
+          .eq('id', id)
+          .eq('user_id', user.id);
 
         if (error) throw error;
       }
@@ -192,9 +226,16 @@ class SupabaseStorage {
   async getCategories(): Promise<Category[]> {
     try {
       if (this.isOnline) {
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+          return this.loadCategoriesLocalStorage();
+        }
+
         const { data, error } = await supabase
           .from('categories')
           .select('*')
+          .eq('user_id', user.id)
           .order('display_order', { ascending: true });
 
         if (error) throw error;
@@ -211,12 +252,23 @@ class SupabaseStorage {
     }
   }
 
-  async addCategory(category: Omit<Category, 'id' | 'created_at' | 'updated_at'>): Promise<Category | null> {
+  async addCategory(category: Omit<Category, 'id' | 'created_at' | 'updated_at' | 'user_id'>): Promise<Category | null> {
     try {
       if (this.isOnline) {
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+          throw new Error('User not authenticated');
+        }
+
+        const categoryWithUser = {
+          ...category,
+          user_id: user.id,
+        };
+
         const { data, error } = await supabase
           .from('categories')
-          .insert([category])
+          .insert([categoryWithUser])
           .select()
           .single();
 
@@ -231,6 +283,7 @@ class SupabaseStorage {
         const tempCategory: Category = {
           ...category,
           id: `temp_cat_${Date.now()}`,
+          user_id: 'temp_user',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };

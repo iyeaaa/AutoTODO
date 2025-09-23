@@ -5,6 +5,7 @@ export interface Todo {
   category: string;
   subcategory_id?: string | null;
   due_date?: string | null;
+  user_id: string;
   created_at: string;
   updated_at: string;
 }
@@ -15,6 +16,7 @@ export interface Category {
   color: string;
   icon: string;
   display_order: number;
+  user_id: string;
   created_at: string;
   updated_at: string;
 }
@@ -26,6 +28,7 @@ export interface SubCategory {
   color: string;
   icon: string;
   display_order: number;
+  user_id: string;
   created_at: string;
   updated_at: string;
 }
@@ -58,3 +61,21 @@ export interface GeminiResponse {
 
 export type FilterType = 'all' | 'active' | 'completed';
 export type SortType = 'newest' | 'oldest' | 'dueDate';
+
+// Auth types
+export interface User {
+  id: string;
+  email: string;
+  name?: string;
+  avatar_url?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuthContextType {
+  user: User | null;
+  loading: boolean;
+  signInWithGoogle: () => Promise<void>;
+  signOut: () => Promise<void>;
+  migrateAnonymousData: () => Promise<void>;
+}

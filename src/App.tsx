@@ -6,12 +6,19 @@ import { storage } from './utils/supabaseStorage';
 import CategoryManagement from './components/CategoryManagement';
 import TodoReviewModal from './components/TodoReviewModal';
 import TodoInlineEdit from './components/TodoInlineEdit';
+import LoginPage from './components/LoginPage';
+import UserProfile from './components/UserProfile';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { testEmojiValidation } from './utils/emojiUtils';
 
-export default function App() {
+function TodoApp() {
+  const { user, loading } = useAuth();
   const [todos, setTodos] = useState<Todo[]>([]);
   const [newTodo, setNewTodo] = useState('');
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = useState(() => {
+    // 초기 다크모드 상태를 localStorage에서 가져오기
+    return localStorage.getItem('darkMode') === 'true';
+  });
   const [filter, setFilter] = useState<'all' | 'completed' | 'active'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [subcategoryFilter, setSubcategoryFilter] = useState<string>('all');
@@ -32,6 +39,26 @@ export default function App() {
   const [lastDueDateBeforeAI, setLastDueDateBeforeAI] = useState<string>('');
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
+
+  // 인증 로딩 중이거나 사용자가 없으면 로딩/로그인 페이지 표시
+  if (loading) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center transition-all duration-500 ${
+        isDark ? 'bg-gray-900' : 'bg-gray-50'
+      }`}>
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className={`text-lg ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+            로딩 중...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage isDark={isDark} />;
+  }
 
   useEffect(() => {
     const loadData = async () => {
@@ -69,9 +96,8 @@ export default function App() {
       setTimeout(() => testEmojiValidation(), 1000);
     }
 
-    const darkMode = localStorage.getItem('darkMode') === 'true';
-    setIsDark(darkMode);
-    updateDarkModeClass(darkMode);
+    // 초기 다크모드 클래스 적용
+    updateDarkModeClass(isDark);
 
     // 온라인/오프라인 상태 감지
     const handleOnline = () => setIsOnline(true);
@@ -438,7 +464,7 @@ export default function App() {
               </div>
             </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex items-center gap-3">
             <button
               onClick={() => setShowCategoryManagement(true)}
               className={`p-3 rounded-xl transition-all duration-300 transform hover:scale-110 hover:rotate-12 ${
@@ -464,6 +490,7 @@ export default function App() {
             >
               {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
+            <UserProfile isDark={isDark} />
           </div>
         </div>
 
@@ -916,5 +943,13 @@ export default function App() {
         />
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <TodoApp />
+    </AuthProvider>
   );
 }

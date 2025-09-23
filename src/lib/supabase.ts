@@ -22,6 +22,7 @@ export type Database = {
           category: string;
           subcategory_id: string | null;
           due_date: string | null;
+          user_id: string;
           created_at: string;
           updated_at: string;
         };
@@ -32,6 +33,7 @@ export type Database = {
           category?: string;
           subcategory_id?: string | null;
           due_date?: string | null;
+          user_id?: string;
           created_at?: string;
           updated_at?: string;
         };
@@ -42,6 +44,7 @@ export type Database = {
           category?: string;
           subcategory_id?: string | null;
           due_date?: string | null;
+          user_id?: string;
           updated_at?: string;
         };
       };
@@ -52,6 +55,7 @@ export type Database = {
           color: string;
           icon: string;
           display_order: number;
+          user_id: string;
           created_at: string;
           updated_at: string;
         };
@@ -61,6 +65,7 @@ export type Database = {
           color?: string;
           icon?: string;
           display_order?: number;
+          user_id?: string;
           created_at?: string;
           updated_at?: string;
         };
@@ -70,6 +75,7 @@ export type Database = {
           color?: string;
           icon?: string;
           display_order?: number;
+          user_id?: string;
           updated_at?: string;
         };
       };
@@ -81,6 +87,7 @@ export type Database = {
           color: string;
           icon: string;
           display_order: number;
+          user_id: string;
           created_at: string;
           updated_at: string;
         };
@@ -91,6 +98,7 @@ export type Database = {
           color?: string;
           icon?: string;
           display_order?: number;
+          user_id?: string;
           created_at?: string;
           updated_at?: string;
         };
@@ -101,6 +109,7 @@ export type Database = {
           color?: string;
           icon?: string;
           display_order?: number;
+          user_id?: string;
           updated_at?: string;
         };
       };
