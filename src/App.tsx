@@ -411,11 +411,11 @@ export default function App() {
     <div className={`min-h-screen transition-all duration-500 ease-in-out ${
       isDark ? 'bg-gray-900' : 'bg-gray-50'
     }`}>
-      <div className="max-w-2xl mx-auto px-4 py-8">
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-8 animate-fade-in-down">
           <div>
-            <h1 className={`text-3xl font-light transition-colors duration-300 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            <h1 className={`text-2xl sm:text-3xl font-light transition-colors duration-300 ${isDark ? 'text-white' : 'text-gray-900'}`}>
               할일
             </h1>
             <div className="flex items-center gap-3 mt-1">
@@ -576,7 +576,7 @@ export default function App() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
               <select
                 value={newCategory}
                 onChange={(e) => {
@@ -590,7 +590,7 @@ export default function App() {
                     setNewSubcategoryId('');
                   }
                 }}
-                className={`px-3 py-2 rounded-lg border transition-all duration-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                className={`px-3 py-3 text-base rounded-lg border transition-all duration-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
                   isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'
                 }`}
               >
@@ -606,7 +606,7 @@ export default function App() {
                 onChange={(e) => {
                   setNewSubcategoryId(e.target.value);
                 }}
-                className={`px-3 py-2 rounded-lg border transition-all duration-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                className={`px-3 py-3 text-base rounded-lg border transition-all duration-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
                   isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'
                 }`}
                 disabled={subcategories.filter(sub => {
@@ -631,7 +631,7 @@ export default function App() {
                 type="date"
                 value={newDueDate}
                 onChange={(e) => setNewDueDate(e.target.value)}
-                className={`px-3 py-2 rounded-lg border transition-all duration-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                className={`px-3 py-3 text-base rounded-lg border transition-all duration-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
                   isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'
                 }`}
               />
@@ -642,7 +642,7 @@ export default function App() {
         {/* Filters */}
         <div className="space-y-4 mb-6 animate-slide-in-up" style={{ animationDelay: '0.2s' }}>
           {/* Status Filters */}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {[
               { key: 'all' as const, label: '전체' },
               { key: 'active' as const, label: '미완료' },
@@ -651,7 +651,7 @@ export default function App() {
               <button
                 key={key}
                 onClick={() => setFilter(key)}
-                className={`px-4 py-2 rounded-xl text-sm transition-all duration-300 transform hover:scale-105 ${
+                className={`px-4 py-3 min-h-[44px] rounded-xl text-sm transition-all duration-300 transform hover:scale-105 touch-manipulation ${
                   filter === key
                     ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg'
                     : isDark
@@ -668,13 +668,13 @@ export default function App() {
           {categories.length > 0 && (
             <div className="space-y-3">
               {/* Main category filters */}
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
                 <button
                   onClick={() => {
                     setCategoryFilter('all');
                     setSubcategoryFilter('all');
                   }}
-                  className={`px-3 py-1 rounded-lg text-xs transition-all duration-300 transform hover:scale-105 ${
+                  className={`px-3 py-2 min-h-[44px] rounded-lg text-sm transition-all duration-300 transform hover:scale-105 touch-manipulation ${
                     categoryFilter === 'all'
                       ? 'bg-gray-500 text-white shadow-md'
                       : isDark
@@ -695,7 +695,7 @@ export default function App() {
                         setCategoryFilter(category.name);
                         setSubcategoryFilter('all');
                       }}
-                      className={`px-3 py-1 rounded-lg text-xs transition-all duration-300 transform hover:scale-105 flex items-center gap-1 ${
+                      className={`px-3 py-2 min-h-[44px] rounded-lg text-sm transition-all duration-300 transform hover:scale-105 touch-manipulation flex items-center gap-1 whitespace-nowrap ${
                         categoryFilter === category.name
                           ? 'shadow-md ring-2 ring-offset-1'
                           : 'hover:shadow-sm'
@@ -804,7 +804,7 @@ export default function App() {
           {filteredTodos.map((todo, index) => (
             <div
               key={todo.id}
-              className={`group p-5 rounded-2xl border transition-all duration-500 transform hover:shadow-xl animate-slide-in-up ${
+              className={`group p-4 sm:p-5 rounded-2xl border transition-all duration-500 transform hover:shadow-xl animate-slide-in-up ${
                 editingTodoId === todo.id
                   ? isDark
                     ? 'bg-blue-900/20 border-blue-500 scale-[1.02]'
@@ -815,10 +815,10 @@ export default function App() {
               } ${todo.completed ? 'opacity-75 hover:opacity-90' : ''}`}
               style={{ animationDelay: `${0.3 + index * 0.05}s` }}
             >
-              <div className="flex items-start gap-4">
+              <div className="flex items-start gap-3 sm:gap-4">
                 <button
                   onClick={() => toggleTodo(todo.id)}
-                  className={`mt-1 flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 transform hover:scale-110 ${
+                  className={`mt-1 flex-shrink-0 w-7 h-7 sm:w-6 sm:h-6 min-h-[44px] sm:min-h-0 rounded-full border-2 flex items-center justify-center transition-all duration-300 transform hover:scale-110 touch-manipulation ${
                     todo.completed
                       ? 'bg-gradient-to-r from-green-500 to-emerald-500 border-green-500 text-white animate-check-mark'
                       : isDark
@@ -846,7 +846,7 @@ export default function App() {
 
                 <button
                   onClick={() => deleteTodo(todo.id)}
-                  className="opacity-0 group-hover:opacity-100 p-2 text-gray-400 hover:text-red-500 transition-all duration-300 transform hover:scale-110 hover:rotate-12 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
+                  className="opacity-60 sm:opacity-0 group-hover:opacity-100 p-2 min-h-[44px] text-gray-400 hover:text-red-500 transition-all duration-300 transform hover:scale-110 hover:rotate-12 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 touch-manipulation"
                   disabled={editingTodoId === todo.id}
                 >
                   <Trash2 className="w-4 h-4" />

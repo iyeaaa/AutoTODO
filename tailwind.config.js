@@ -145,6 +145,11 @@ export default {
         '18': '4.5rem',
         '88': '22rem',
       },
+      touchAction: {
+        'pan-x': 'pan-x',
+        'pan-y': 'pan-y',
+        'manipulation': 'manipulation',
+      },
     },
   },
   plugins: [],
