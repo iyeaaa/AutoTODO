@@ -116,10 +116,12 @@ class SupabaseStorage {
   async updateTodo(id: string, updates: Partial<Todo>): Promise<Todo | null> {
     try {
       if (this.isOnline) {
+        console.log('🔄 할일 업데이트 시작:', id);
         const { data: { user } } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new Error('User not authenticated');
+          console.error('❌ 사용자 인증 실패');
+          throw new Error('사용자 인증이 필요합니다. 다시 로그인해주세요.');
         }
 
         const { data, error } = await supabase
@@ -130,8 +132,18 @@ class SupabaseStorage {
           .select()
           .single();
 
-        if (error) throw error;
+        if (error) {
+          console.error('❌ Supabase 업데이트 실패:', error);
+          if (error.code === 'PGRST116') {
+            throw new Error('해당 할일을 찾을 수 없습니다.');
+          }
+          if (error.code === '42501') {
+            throw new Error('할일을 수정할 권한이 없습니다.');
+          }
+          throw new Error(`할일 업데이트 실패: ${error.message}`);
+        }
 
+        console.log('✅ 할일 업데이트 성공:', data.id);
         const index = this.localCache.findIndex(todo => todo.id === id);
         if (index !== -1) {
           this.localCache[index] = data;
@@ -152,19 +164,28 @@ class SupabaseStorage {
         }
         return null;
       }
-    } catch (error) {
-      console.error('Failed to update todo:', error);
-      return null;
+    } catch (error: any) {
+      console.error('❌ 할일 업데이트 실패:', error);
+      // 상세한 에러 정보 로깅
+      if (error.code) {
+        console.error('에러 코드:', error.code);
+      }
+      if (error.details) {
+        console.error('에러 세부사항:', error.details);
+      }
+      throw error; // 에러를 상위로 전파하여 App에서 처리할 수 있도록
     }
   }
 
   async deleteTodo(id: string): Promise<boolean> {
     try {
       if (this.isOnline) {
+        console.log('🗑️ 할일 삭제 시작:', id);
         const { data: { user } } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new Error('User not authenticated');
+          console.error('❌ 사용자 인증 실패');
+          throw new Error('사용자 인증이 필요합니다. 다시 로그인해주세요.');
         }
 
         const { error } = await supabase
@@ -173,15 +194,32 @@ class SupabaseStorage {
           .eq('id', id)
           .eq('user_id', user.id);
 
-        if (error) throw error;
+        if (error) {
+          console.error('❌ Supabase 삭제 실패:', error);
+          if (error.code === 'PGRST116') {
+            throw new Error('해당 할일을 찾을 수 없습니다.');
+          }
+          if (error.code === '42501') {
+            throw new Error('할일을 삭제할 권한이 없습니다.');
+          }
+          throw new Error(`할일 삭제 실패: ${error.message}`);
+        }
+
+        console.log('✅ 할일 삭제 성공:', id);
       }
 
       this.localCache = this.localCache.filter(todo => todo.id !== id);
       this.saveToLocalStorage(this.localCache);
       return true;
-    } catch (error) {
-      console.error('Failed to delete todo:', error);
-      return false;
+    } catch (error: any) {
+      console.error('❌ 할일 삭제 실패:', error);
+      if (error.code) {
+        console.error('에러 코드:', error.code);
+      }
+      if (error.details) {
+        console.error('에러 세부사항:', error.details);
+      }
+      throw error; // 에러를 상위로 전파
     }
   }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Check, X, Plus, Moon, Sun, Trash2, Circle, Settings } from 'lucide-react';
+import { Check, X, Plus, Moon, Sun, Trash2, Circle, Settings, RefreshCw } from 'lucide-react';
 import type { Todo, Category, SubCategory, ReviewTodo } from './types';
 import { parseTextToTodos } from './lib/gemini';
 import { storage } from './utils/supabaseStorage';
@@ -39,11 +39,12 @@ function TodoApp() {
   const [lastDueDateBeforeAI, setLastDueDateBeforeAI] = useState<string>('');
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<'connected' | 'disconnected' | 'error'>('connected');
 
   useEffect(() => {
     if (!user) return; // 사용자가 없으면 데이터 로딩하지 않음
-    const loadData = async () => {
-      console.log('📦 데이터 로딩 시작...');
+    const loadData = async (retryCount = 0) => {
+      console.log('📦 데이터 로딩 시작... (시도:', retryCount + 1, ')');
       setIsSyncing(true);
       try {
         console.log('🔄 Todos, Categories, Subcategories 로딩 중...');
@@ -61,24 +62,59 @@ function TodoApp() {
         console.log('📋 Categories:', categories);
         console.log('📋 Subcategories:', subcategories);
 
+        // 기본 카테고리가 없으면 생성
+        let finalCategories = categories;
+        if (categories.length === 0) {
+          console.log('🔧 기본 카테고리 생성 중...');
+          try {
+            const defaultCategories = [
+              { name: '개인', color: '#6B7280', icon: '👤', display_order: 1 },
+              { name: '업무', color: '#3B82F6', icon: '💼', display_order: 2 },
+              { name: '학습', color: '#10B981', icon: '📚', display_order: 3 }
+            ];
+
+            const createdCategories = [];
+            for (const catData of defaultCategories) {
+              const created = await storage.addCategory(catData);
+              if (created) {
+                createdCategories.push(created);
+              }
+            }
+            finalCategories = createdCategories;
+            console.log('✅ 기본 카테고리 생성 완료:', createdCategories.length);
+          } catch (error) {
+            console.error('❌ 기본 카테고리 생성 실패:', error);
+          }
+        }
+
         setTodos(todos);
-        setCategories(categories);
+        setCategories(finalCategories);
         setSubcategories(subcategories);
 
         // 첫 번째 카테고리를 기본값으로 설정
-        if (categories.length > 0) {
-          console.log('✅ 기본 카테고리 설정:', categories[0].name);
-          setNewCategory(categories[0].name);
+        if (finalCategories.length > 0) {
+          console.log('✅ 기본 카테고리 설정:', finalCategories[0].name);
+          setNewCategory(finalCategories[0].name);
           // 첫 번째 카테고리의 첫 번째 서브카테고리를 기본값으로 설정
-          const firstCategorySubcategories = subcategories.filter(sub => sub.parent_category_id === categories[0].id);
+          const firstCategorySubcategories = subcategories.filter(sub => sub.parent_category_id === finalCategories[0].id);
           if (firstCategorySubcategories.length > 0) {
             setNewSubcategoryId(firstCategorySubcategories[0].id);
           }
         } else {
-          console.log('❌ 카테고리가 없습니다!');
+          console.log('❌ 카테고리 생성도 실패했습니다!');
         }
       } catch (error) {
         console.error('❌ Failed to load data:', error);
+
+        // 최대 3회까지 재시도
+        if (retryCount < 2) {
+          console.log('🔄 데이터 로딩 재시도 중...');
+          setTimeout(() => loadData(retryCount + 1), 2000); // 2초 후 재시도
+          return;
+        } else {
+          console.error('❌ 데이터 로딩 최종 실패. 로컬 데이터 사용.');
+          alert('데이터 로딩에 실패했습니다. 새로고침을 시도하거나 네트워크를 확인해주세요.');
+        }
       } finally {
         console.log('🏁 데이터 로딩 완료');
         setIsSyncing(false);
@@ -104,20 +140,43 @@ function TodoApp() {
 
     // 실시간 구독 설정
     const unsubscribeTodos = storage.subscribeToChanges((updatedTodos) => {
+      console.log('🔄 실시간 할일 업데이트:', updatedTodos.length);
       setTodos(updatedTodos);
+      setSubscriptionStatus('connected');
     });
 
     const unsubscribeCategories = storage.subscribeToCategoryChanges((updatedCategories) => {
+      console.log('🔄 실시간 카테고리 업데이트:', updatedCategories.length);
       setCategories(updatedCategories);
+      setSubscriptionStatus('connected');
     });
 
     const unsubscribeSubcategories = storage.subscribeToSubCategoryChanges((updatedSubcategories) => {
+      console.log('🔄 실시간 서브카테고리 업데이트:', updatedSubcategories.length);
       setSubcategories(updatedSubcategories);
+      setSubscriptionStatus('connected');
     });
+
+    // 구독 상태 모니터링
+    const checkSubscriptionHealth = () => {
+      // 구독이 5초 이상 응답이 없으면 disconnected로 표시
+      const healthCheck = setTimeout(() => {
+        console.log('⚠️ 실시간 구독 상태 확인 중...');
+        setSubscriptionStatus('disconnected');
+      }, 5000);
+
+      // 구독이 활성화되면 타이머 클리어
+      const clearHealthCheck = () => clearTimeout(healthCheck);
+
+      return clearHealthCheck;
+    };
+
+    const clearHealthCheck = checkSubscriptionHealth();
 
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      clearHealthCheck();
       unsubscribeTodos();
       unsubscribeCategories();
       unsubscribeSubcategories();
@@ -265,15 +324,45 @@ function TodoApp() {
     const todo = todos.find(t => t.id === id);
     if (!todo) return;
 
-    // 실시간 구독이 상태를 업데이트하므로 수동 업데이트 제거
-    await storage.updateTodo(id, {
-      completed: !todo.completed
-    });
+    // 낙관적 업데이트: 즉시 로컬 상태 업데이트
+    const updatedTodos = todos.map(t =>
+      t.id === id ? { ...t, completed: !t.completed } : t
+    );
+    setTodos(updatedTodos);
+
+    try {
+      // Supabase 업데이트
+      await storage.updateTodo(id, {
+        completed: !todo.completed
+      });
+    } catch (error) {
+      console.error('Failed to toggle todo:', error);
+      // 실패 시 롤백
+      setTodos(todos);
+      alert('할일 상태 변경에 실패했습니다. 다시 시도해주세요.');
+    }
   };
 
   const deleteTodo = async (id: string) => {
-    // 실시간 구독이 상태를 업데이트하므로 수동 업데이트 제거
-    await storage.deleteTodo(id);
+    const todoToDelete = todos.find(t => t.id === id);
+    if (!todoToDelete) return;
+
+    // 낙관적 업데이트: 즉시 로컬 상태에서 제거
+    const updatedTodos = todos.filter(t => t.id !== id);
+    setTodos(updatedTodos);
+
+    try {
+      // Supabase에서 삭제
+      const success = await storage.deleteTodo(id);
+      if (!success) {
+        throw new Error('Delete operation failed');
+      }
+    } catch (error) {
+      console.error('Failed to delete todo:', error);
+      // 실패 시 롤백
+      setTodos(todos);
+      alert('할일 삭제에 실패했습니다. 다시 시도해주세요.');
+    }
   };
 
   const filteredTodos = todos.filter(todo => {
@@ -387,16 +476,42 @@ function TodoApp() {
         }
       }
 
-      // 할일들을 순차적으로 추가 (실시간 구독이 상태를 업데이트하므로 수동 업데이트 제거)
+      // 낙관적 업데이트용 임시 할일들 생성
+      const tempTodos = confirmedTodos.map((reviewTodo, index) => ({
+        id: `temp_${Date.now()}_${index}`,
+        text: reviewTodo.text.trim(),
+        completed: false,
+        category: reviewTodo.category,
+        subcategory_id: reviewTodo.subcategory_id,
+        due_date: reviewTodo.due_date,
+        user_id: 'temp_user',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }));
+
+      // 낙관적 업데이트: 즉시 UI에 표시
+      setTodos(prevTodos => [...tempTodos, ...prevTodos]);
+
+      // Supabase에 순차적으로 추가
+      const addedTodos = [];
       for (const reviewTodo of confirmedTodos) {
-        await storage.addTodo({
+        const addedTodo = await storage.addTodo({
           text: reviewTodo.text.trim(),
           completed: false,
           category: reviewTodo.category,
           subcategory_id: reviewTodo.subcategory_id,
           due_date: reviewTodo.due_date,
         });
+        if (addedTodo) {
+          addedTodos.push(addedTodo);
+        }
       }
+
+      // 임시 할일들을 실제 할일들로 교체
+      setTodos(prevTodos => [
+        ...addedTodos,
+        ...prevTodos.filter(todo => !todo.id.startsWith('temp_'))
+      ]);
 
       setShowReviewModal(false);
       setReviewTodos([]);
@@ -408,6 +523,8 @@ function TodoApp() {
       setLastDueDateBeforeAI('');
     } catch (error) {
       console.error('Failed to add reviewed todos:', error);
+      // 실패 시 임시 할일들 제거
+      setTodos(prevTodos => prevTodos.filter(todo => !todo.id.startsWith('temp_')));
       alert('할일 추가 중 오류가 발생했습니다. 다시 시도해주세요.');
     } finally {
       setIsLoading(false);
@@ -420,13 +537,56 @@ function TodoApp() {
   };
 
   const handleSaveEdit = async (todoId: string, updates: Partial<Todo>) => {
-    // 실시간 구독이 상태를 업데이트하므로 수동 업데이트 제거
-    await storage.updateTodo(todoId, updates);
+    const originalTodos = [...todos];
+
+    // 낙관적 업데이트: 즉시 로컬 상태 업데이트
+    const updatedTodos = todos.map(todo =>
+      todo.id === todoId ? { ...todo, ...updates } : todo
+    );
+    setTodos(updatedTodos);
     setEditingTodoId(null);
+
+    try {
+      // Supabase 업데이트
+      await storage.updateTodo(todoId, updates);
+    } catch (error) {
+      console.error('Failed to save todo edit:', error);
+      // 실패 시 롤백
+      setTodos(originalTodos);
+      setEditingTodoId(todoId); // 편집 모드 복원
+      alert('할일 수정에 실패했습니다. 다시 시도해주세요.');
+    }
   };
 
   const handleCancelEdit = () => {
     setEditingTodoId(null);
+  };
+
+  const handleManualRefresh = async () => {
+    if (!user || isSyncing) return;
+
+    console.log('🔄 수동 새로고침 시작...');
+    setIsSyncing(true);
+    setSubscriptionStatus('connected');
+
+    try {
+      const [todos, categories, subcategories] = await Promise.all([
+        storage.getTodos(),
+        storage.getCategories(),
+        storage.getSubCategories()
+      ]);
+
+      setTodos(todos);
+      setCategories(categories);
+      setSubcategories(subcategories);
+
+      console.log('✅ 수동 새로고침 완료');
+    } catch (error) {
+      console.error('❌ 수동 새로고침 실패:', error);
+      setSubscriptionStatus('error');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   // 인증 로딩 중이거나 사용자가 없으면 로딩/로그인 페이지 표시
@@ -467,10 +627,14 @@ function TodoApp() {
               {/* 연결 상태 표시 */}
               <div className="flex items-center gap-1">
                 <div className={`w-2 h-2 rounded-full transition-colors duration-300 ${
-                  isOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+                  !isOnline ? 'bg-red-500' :
+                  subscriptionStatus === 'connected' ? 'bg-green-500 animate-pulse' :
+                  subscriptionStatus === 'disconnected' ? 'bg-yellow-500' : 'bg-red-500'
                 }`} />
                 <span className={`text-xs transition-colors duration-300 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                  {isOnline ? '온라인' : '오프라인'}
+                  {!isOnline ? '오프라인' :
+                   subscriptionStatus === 'connected' ? '실시간 동기화' :
+                   subscriptionStatus === 'disconnected' ? '동기화 대기' : '연결 오류'}
                 </span>
                 {isSyncing && (
                   <div className="ml-1">
@@ -481,6 +645,20 @@ function TodoApp() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={handleManualRefresh}
+              disabled={isSyncing}
+              className={`p-3 rounded-xl transition-all duration-300 transform hover:scale-110 ${
+                subscriptionStatus === 'disconnected' || subscriptionStatus === 'error'
+                  ? 'bg-yellow-500 hover:bg-yellow-600 text-white shadow-lg animate-pulse'
+                  : isDark
+                    ? 'bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-blue-400'
+                    : 'bg-white hover:bg-gray-100 text-gray-600 hover:text-blue-600 shadow-lg hover:shadow-xl'
+              } disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none`}
+              title="수동 새로고침"
+            >
+              <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
+            </button>
             <button
               onClick={() => setShowCategoryManagement(true)}
               className={`p-3 rounded-xl transition-all duration-300 transform hover:scale-110 hover:rotate-12 ${
@@ -762,7 +940,7 @@ function TodoApp() {
                           ? 'bg-white/20 text-white'
                           : isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600'
                       }`}>
-                        {incompleteCategoryTodos.length}/{completedCategoryTodos.length}
+                        {completedCategoryTodos.length}/{categoryTodos.length}
                       </span>
                     </button>
                   );
