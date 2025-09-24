@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { DndContext, DragOverlay } from '@dnd-kit/core';
 import type { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core';
-import { X, Plus, Moon, Sun, Circle, Settings, RefreshCw } from 'lucide-react';
+import { X, Plus, Moon, Sun, Circle, Settings } from 'lucide-react';
 import type { Todo, Category, SubCategory, ReviewTodo, TreeState, DropZone } from './types';
 import { parseTextToTodos } from './lib/gemini';
 import { storage } from './utils/supabaseStorage';
@@ -29,8 +29,6 @@ function TodoApp() {
   const [newSubcategoryId, setNewSubcategoryId] = useState<string>('');
   const [newDueDate, setNewDueDate] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [subcategories, setSubcategories] = useState<SubCategory[]>([]);
   const [showCategoryManagement, setShowCategoryManagement] = useState(false);
@@ -42,7 +40,6 @@ function TodoApp() {
   const [lastDueDateBeforeAI, setLastDueDateBeforeAI] = useState<string>('');
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
-  const [subscriptionStatus, setSubscriptionStatus] = useState<'connected' | 'disconnected' | 'error'>('connected');
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [treeState, setTreeState] = useState<TreeState>({ nodes: {}, rootOrder: [], children: {} });
   const [dragOverInfo, setDragOverInfo] = useState<{ targetId: string; zone: DropZone } | null>(null);
@@ -51,7 +48,6 @@ function TodoApp() {
     if (!user) return; // 사용자가 없으면 데이터 로딩하지 않음
     const loadData = async (retryCount = 0) => {
       console.log('📦 데이터 로딩 시작... (시도:', retryCount + 1, ')');
-      setIsSyncing(true);
       try {
         console.log('🔄 Todos, Categories, Subcategories 로딩 중...');
         const [todos, categories, subcategories] = await Promise.all([
@@ -123,7 +119,6 @@ function TodoApp() {
         }
       } finally {
         console.log('🏁 데이터 로딩 완료');
-        setIsSyncing(false);
       }
     };
 
@@ -137,52 +132,25 @@ function TodoApp() {
     // 초기 다크모드 클래스 적용
     updateDarkModeClass(isDark);
 
-    // 온라인/오프라인 상태 감지
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
 
     // 실시간 구독 설정
     const unsubscribeTodos = storage.subscribeToChanges((updatedTodos) => {
       console.log('🔄 실시간 할일 업데이트:', updatedTodos.length);
       setTodos(updatedTodos);
-      setSubscriptionStatus('connected');
     });
 
     const unsubscribeCategories = storage.subscribeToCategoryChanges((updatedCategories) => {
       console.log('🔄 실시간 카테고리 업데이트:', updatedCategories.length);
       setCategories(updatedCategories);
-      setSubscriptionStatus('connected');
     });
 
     const unsubscribeSubcategories = storage.subscribeToSubCategoryChanges((updatedSubcategories) => {
       console.log('🔄 실시간 서브카테고리 업데이트:', updatedSubcategories.length);
       setSubcategories(updatedSubcategories);
-      setSubscriptionStatus('connected');
     });
 
-    // 구독 상태 모니터링
-    const checkSubscriptionHealth = () => {
-      // 구독이 5초 이상 응답이 없으면 disconnected로 표시
-      const healthCheck = setTimeout(() => {
-        console.log('⚠️ 실시간 구독 상태 확인 중...');
-        setSubscriptionStatus('disconnected');
-      }, 5000);
-
-      // 구독이 활성화되면 타이머 클리어
-      const clearHealthCheck = () => clearTimeout(healthCheck);
-
-      return clearHealthCheck;
-    };
-
-    const clearHealthCheck = checkSubscriptionHealth();
 
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      clearHealthCheck();
       unsubscribeTodos();
       unsubscribeCategories();
       unsubscribeSubcategories();
@@ -798,32 +766,6 @@ function TodoApp() {
     }
   };
 
-  const handleManualRefresh = async () => {
-    if (!user || isSyncing) return;
-
-    console.log('🔄 수동 새로고침 시작...');
-    setIsSyncing(true);
-    setSubscriptionStatus('connected');
-
-    try {
-      const [todos, categories, subcategories] = await Promise.all([
-        storage.getTodos(),
-        storage.getCategories(),
-        storage.getSubCategories()
-      ]);
-
-      setTodos(todos);
-      setCategories(categories);
-      setSubcategories(subcategories);
-
-      console.log('✅ 수동 새로고침 완료');
-    } catch (error) {
-      console.error('❌ 수동 새로고침 실패:', error);
-      setSubscriptionStatus('error');
-    } finally {
-      setIsSyncing(false);
-    }
-  };
 
   // 인증 로딩 중이거나 사용자가 없으면 로딩/로그인 페이지 표시
   if (loading) {
