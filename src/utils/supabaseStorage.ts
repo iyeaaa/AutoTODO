@@ -70,12 +70,16 @@ class SupabaseStorage {
 
   async addTodo(todo: Omit<Todo, 'id' | 'created_at' | 'updated_at' | 'user_id'>): Promise<Todo | null> {
     try {
-      // 기본값 설정: display_order는 같은 레벨에서 마지막 순서
+      // 기본값 설정
       const todoWithDefaults = {
         ...todo,
-        display_order: todo.display_order ?? await this.calculateNextDisplayOrder(todo.parent_id || null),
-        parent_id: todo.parent_id ?? null
+        parent_id: todo.parent_id || null
       };
+
+      console.log('📝 Adding todo with defaults:', {
+        text: todoWithDefaults.text,
+        parent_id: todoWithDefaults.parent_id
+      });
 
       if (this.isOnline) {
         const { data: { user } } = await supabase.auth.getUser();
@@ -109,6 +113,8 @@ class SupabaseStorage {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
+
+        console.log('📱 Adding temp todo (offline):', tempTodo);
 
         this.localCache.unshift(tempTodo);
         this.saveToLocalStorage(this.localCache);
@@ -754,33 +760,24 @@ class SupabaseStorage {
     return descendants;
   }
 
-  private async calculateNextDisplayOrder(parentId: string | null): Promise<number> {
-    // 같은 레벨의 형제들 중 가장 큰 display_order 찾기
-    const siblings = this.localCache.filter(todo => todo.parent_id === parentId);
-
-    if (siblings.length === 0) return 0;
-
-    const maxOrder = Math.max(...siblings.map(todo => todo.display_order || 0));
-    return maxOrder + 1;
-  }
 
   // 계층 구조로 투두들을 정렬 (2-레벨 전용)
   getHierarchicalTodos(todos: Todo[]): Todo[] {
     const sortedTodos: Todo[] = [];
 
-    // 루트 투두들을 display_order로 정렬
+    // 루트 투두들을 created_at으로 정렬 (최신순)
     const rootTodos = todos
       .filter(todo => !todo.parent_id)
-      .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     // 각 루트 투두와 그 자식들을 순서대로 추가
     rootTodos.forEach(rootTodo => {
       sortedTodos.push(rootTodo);
 
-      // 자식들을 display_order로 정렬하여 추가
+      // 자식들을 created_at으로 정렬하여 추가 (생성 순서)
       const children = todos
         .filter(todo => todo.parent_id === rootTodo.id)
-        .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
       sortedTodos.push(...children);
     });
@@ -826,44 +823,22 @@ class SupabaseStorage {
     return this.calculateCompletionStats(children);
   }
 
-  // display_order 기반 배치 업데이트
-  async updateTodosOrder(todos: Todo[]): Promise<boolean> {
-    try {
-      if (!this.isOnline) {
-        // 오프라인일 때는 로컬 캐시만 업데이트
-        todos.forEach(todo => {
-          const index = this.localCache.findIndex(t => t.id === todo.id);
-          if (index !== -1) {
-            this.localCache[index] = { ...this.localCache[index], ...todo };
-          }
-        });
-        this.saveToLocalStorage(this.localCache);
-        return true;
-      }
-
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      // 배치 업데이트
-      for (const todo of todos) {
-        await this.updateTodo(todo.id, {
-          parent_id: todo.parent_id,
-          display_order: todo.display_order
-        });
-      }
-
-      return true;
-    } catch (error) {
-      console.error('Failed to update todos order:', error);
-      return false;
-    }
-  }
-
-  // TreeState와 동기화를 위한 헬퍼
+  // TreeState와 동기화를 위한 헬퍼 (parent_id만 업데이트)
   async syncTreeState(treeState: any): Promise<boolean> {
     try {
       const todos = Object.values(treeState.nodes) as Todo[];
-      return await this.updateTodosOrder(todos);
+
+      // 변경된 parent_id만 업데이트
+      for (const todo of todos) {
+        const originalTodo = this.localCache.find(t => t.id === todo.id);
+        if (originalTodo && originalTodo.parent_id !== todo.parent_id) {
+          await this.updateTodo(todo.id, {
+            parent_id: todo.parent_id
+          });
+        }
+      }
+
+      return true;
     } catch (error) {
       console.error('Failed to sync tree state:', error);
       return false;

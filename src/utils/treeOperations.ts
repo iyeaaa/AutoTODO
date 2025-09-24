@@ -14,7 +14,7 @@ export function todosToTreeState(todos: Todo[]): TreeState {
   // 루트와 자식 분리 및 정렬
   todos
     .filter(todo => !todo.parent_id) // 부모 (루트) 노드들
-    .sort((a, b) => a.display_order - b.display_order)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) // 최신순
     .forEach(todo => {
       rootOrder.push(todo.id);
     });
@@ -30,10 +30,10 @@ export function todosToTreeState(todos: Todo[]): TreeState {
       children[parentId].push(todo.id);
     });
 
-  // 자식들을 display_order로 정렬
+  // 자식들을 created_at으로 정렬 (생성 순서)
   Object.keys(children).forEach(parentId => {
     children[parentId].sort((a, b) =>
-      nodes[a].display_order - nodes[b].display_order
+      new Date(nodes[a].created_at).getTime() - new Date(nodes[b].created_at).getTime()
     );
   });
 
@@ -99,32 +99,9 @@ function detachFromTree(state: TreeState, dragId: Id): TreeState {
   return newState;
 }
 
-// display_order 재계산
-function recalculateDisplayOrder(state: TreeState): TreeState {
-  const newNodes = { ...state.nodes };
-
-  // 루트 노드들 순서 업데이트
-  state.rootOrder.forEach((id, index) => {
-    newNodes[id] = {
-      ...newNodes[id],
-      display_order: index
-    };
-  });
-
-  // 자식 노드들 순서 업데이트
-  Object.entries(state.children).forEach(([, childIds]) => {
-    childIds.forEach((id, index) => {
-      newNodes[id] = {
-        ...newNodes[id],
-        display_order: index
-      };
-    });
-  });
-
-  return {
-    ...state,
-    nodes: newNodes
-  };
+// created_at 기반이므로 순서 재계산 불필요 (간소화)
+function finalizeTreeState(state: TreeState): TreeState {
+  return state;
 }
 
 // 메인 이동 함수
@@ -156,7 +133,7 @@ export function moveTodo(
       parent_id: null
     };
     newState.rootOrder = insertAtEnd(newState.rootOrder, dragId);
-    return recalculateDisplayOrder(newState);
+    return finalizeTreeState(newState);
   }
 
   // zone: inside/before/after
@@ -173,7 +150,7 @@ export function moveTodo(
         newState.children[targetNode.id] = [];
       }
       newState.children[targetNode.id] = insertAtEnd(newState.children[targetNode.id], dragId);
-      return recalculateDisplayOrder(newState);
+      return finalizeTreeState(newState);
     } else {
       // 자식에 inside -> after sibling으로 보정
       const parentId = targetNode.parent_id!;
@@ -190,7 +167,7 @@ export function moveTodo(
         dragId,
         'after'
       );
-      return recalculateDisplayOrder(newState);
+      return finalizeTreeState(newState);
     }
   }
 
@@ -207,7 +184,7 @@ export function moveTodo(
         dragId,
         zone
       );
-      return recalculateDisplayOrder(newState);
+      return finalizeTreeState(newState);
     } else {
       // 자식 레벨에서 정렬
       const parentId = targetNode.parent_id!;
@@ -230,7 +207,7 @@ export function moveTodo(
         dragId,
         zone
       );
-      return recalculateDisplayOrder(newState);
+      return finalizeTreeState(newState);
     }
   }
 

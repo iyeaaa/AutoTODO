@@ -204,6 +204,8 @@ function TodoApp() {
   };
 
   const addTodo = async () => {
+    console.log('🎯 Add todo button clicked:', { newTodo: newTodo.trim(), hasContent: !!newTodo.trim() });
+
     if (newTodo.trim()) {
       // Try to parse with AI first if it's a complex input
       if (newTodo.includes(',') || newTodo.includes('그리고') || newTodo.includes('및') || newTodo.includes('후에') || newTodo.includes('다음에')) {
@@ -260,7 +262,6 @@ function TodoApp() {
                 subcategory_id: subcategoryId,
                 due_date: parsedTodo.dueDate || null,
                 parent_id: null,
-                display_order: index,
                 selected: true,
               };
             });
@@ -324,23 +325,33 @@ function TodoApp() {
   };
 
   const addSimpleTodo = async (parentId?: string) => {
-    // display_order 계산
-    const siblings = parentId
-      ? todos.filter(t => t.parent_id === parentId)
-      : todos.filter(t => !t.parent_id);
-
-    const nextOrder = siblings.length;
-
-    // 실시간 구독이 상태를 업데이트하므로 수동 업데이트 제거
-    await storage.addTodo({
+    console.log('🔄 Adding simple todo:', {
       text: newTodo,
-      completed: false,
       category: newCategory,
-      subcategory_id: newSubcategoryId || null,
-      due_date: newDueDate || null,
-      parent_id: parentId,
-      display_order: nextOrder,
+      parent_id: parentId || null
     });
+
+    try {
+      // 실시간 구독이 상태를 업데이트하므로 수동 업데이트 제거
+      const result = await storage.addTodo({
+        text: newTodo,
+        completed: false,
+        category: newCategory,
+        subcategory_id: newSubcategoryId || null,
+        due_date: newDueDate || null,
+        parent_id: parentId || null,
+      });
+
+      if (result) {
+        console.log('✅ Todo added successfully:', result.id);
+      } else {
+        console.error('❌ Failed to add todo: no result returned');
+        alert('할일 추가에 실패했습니다. 다시 시도해주세요.');
+      }
+    } catch (error) {
+      console.error('❌ Error adding todo:', error);
+      alert('할일 추가 중 오류가 발생했습니다.');
+    }
   };
 
   const toggleTodo = async (id: string) => {
@@ -579,7 +590,6 @@ function TodoApp() {
         subcategory_id: reviewTodo.subcategory_id,
         due_date: reviewTodo.due_date,
         parent_id: reviewTodo.parent_id || null,
-        display_order: reviewTodo.display_order || index,
         user_id: 'temp_user',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -598,7 +608,6 @@ function TodoApp() {
           subcategory_id: reviewTodo.subcategory_id,
           due_date: reviewTodo.due_date,
           parent_id: reviewTodo.parent_id || null,
-          display_order: reviewTodo.display_order || 0,
         });
         if (addedTodo) {
           addedTodos.push(addedTodo);
@@ -681,20 +690,33 @@ function TodoApp() {
       subTodoText = promptResult;
     }
 
-    // 자식들의 다음 display_order 계산
-    const siblings = todos.filter(t => t.parent_id === parentId);
-    const nextOrder = siblings.length;
-
-    // 서브투두 추가
-    await storage.addTodo({
+    console.log('🔄 Adding sub todo:', {
       text: subTodoText.trim(),
-      completed: false,
-      category: parentTodo.category,
-      subcategory_id: parentTodo.subcategory_id || null,
-      due_date: null,
-      parent_id: parentId || undefined,
-      display_order: nextOrder,
+      parent_id: parentId,
+      category: parentTodo.category
     });
+
+    try {
+      // 서브투두 추가
+      const result = await storage.addTodo({
+        text: subTodoText.trim(),
+        completed: false,
+        category: parentTodo.category,
+        subcategory_id: parentTodo.subcategory_id || null,
+        due_date: null,
+        parent_id: parentId,
+      });
+
+      if (result) {
+        console.log('✅ Sub todo added successfully:', result.id);
+      } else {
+        console.error('❌ Failed to add sub todo: no result returned');
+        alert('서브 할일 추가에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('❌ Error adding sub todo:', error);
+      alert('서브 할일 추가 중 오류가 발생했습니다.');
+    }
   };
 
   // 부모-자식 관계 검증 함수 (순환 참조 방지)
@@ -756,9 +778,18 @@ function TodoApp() {
     // 낙관적 업데이트
     setTodos(newTodos);
 
-    // 서버에 변경사항 동기화
+    // 서버에 변경사항 동기화 (parent_id 변경만)
     try {
-      await storage.syncTreeState(newTreeState);
+      const changedTodos = newTodos.filter(newTodo => {
+        const originalTodo = todos.find(t => t.id === newTodo.id);
+        return originalTodo && originalTodo.parent_id !== newTodo.parent_id;
+      });
+
+      for (const todo of changedTodos) {
+        await storage.updateTodo(todo.id, {
+          parent_id: todo.parent_id
+        });
+      }
     } catch (error) {
       console.error('Failed to sync drag and drop changes:', error);
       // 실패 시 롤백
@@ -825,45 +856,11 @@ function TodoApp() {
             <h1 className={`text-2xl sm:text-3xl font-light transition-colors duration-300 ${isDark ? 'text-white' : 'text-gray-900'}`}>
               할일
             </h1>
-            <div className="flex items-center gap-3 mt-1">
-              <p className={`text-sm transition-colors duration-300 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                오늘 해야 할 일들을 정리해보세요
-              </p>
-              {/* 연결 상태 표시 */}
-              <div className="flex items-center gap-1">
-                <div className={`w-2 h-2 rounded-full transition-colors duration-300 ${
-                  !isOnline ? 'bg-red-500' :
-                  subscriptionStatus === 'connected' ? 'bg-green-500 animate-pulse' :
-                  subscriptionStatus === 'disconnected' ? 'bg-yellow-500' : 'bg-red-500'
-                }`} />
-                <span className={`text-xs transition-colors duration-300 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                  {!isOnline ? '오프라인' :
-                   subscriptionStatus === 'connected' ? '실시간 동기화' :
-                   subscriptionStatus === 'disconnected' ? '동기화 대기' : '연결 오류'}
-                </span>
-                {isSyncing && (
-                  <div className="ml-1">
-                    <div className="w-3 h-3 border border-blue-500 border-t-transparent rounded-full animate-spin" />
-                  </div>
-                )}
-              </div>
-            </div>
+            <p className={`text-sm mt-1 transition-colors duration-300 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+              오늘 해야 할 일들을 정리해보세요
+            </p>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleManualRefresh}
-              disabled={isSyncing}
-              className={`p-3 rounded-xl transition-all duration-300 transform hover:scale-110 ${
-                subscriptionStatus === 'disconnected' || subscriptionStatus === 'error'
-                  ? 'bg-yellow-500 hover:bg-yellow-600 text-white shadow-lg animate-pulse'
-                  : isDark
-                    ? 'bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-blue-400'
-                    : 'bg-white hover:bg-gray-100 text-gray-600 hover:text-blue-600 shadow-lg hover:shadow-xl'
-              } disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none`}
-              title="수동 새로고침"
-            >
-              <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
-            </button>
             <button
               onClick={() => setShowCategoryManagement(true)}
               className={`p-3 rounded-xl transition-all duration-300 transform hover:scale-110 hover:rotate-12 ${
@@ -952,14 +949,14 @@ function TodoApp() {
                     isDark
                       ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400'
                       : 'bg-white border-gray-300 shadow-sm focus:shadow-md'
-                  } ${isLoading || isSyncing ? 'opacity-75' : ''}`}
+                  } ${isLoading ? 'opacity-75' : ''}`}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       addTodo();
                     }
                   }}
-                  disabled={isLoading || isSyncing}
+                  disabled={isLoading}
                   rows={Math.max(1, Math.min(4, newTodo.split('\n').length))}
                   style={{
                     minHeight: '48px',
@@ -999,15 +996,11 @@ function TodoApp() {
               ) : (
                 <button
                   onClick={addTodo}
-                  disabled={!newTodo.trim() || isSyncing}
+                  disabled={!newTodo.trim()}
                   className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl hover:from-blue-600 hover:to-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 flex items-center gap-2 transform hover:scale-105 active:scale-95 shadow-lg hover:shadow-xl"
                 >
-                  {isSyncing ? (
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <Plus className="w-4 h-4" />
-                  )}
-                  {isSyncing ? '동기화중...' : '추가'}
+                  <Plus className="w-4 h-4" />
+                  추가
                 </button>
               )}
             </div>
@@ -1278,7 +1271,7 @@ function TodoApp() {
               </div>
             ))}
 
-            {rootTodos.length === 0 && !isSyncing && (
+            {rootTodos.length === 0 && (
               <div className={`text-center py-16 transition-colors duration-300 ${isDark ? 'text-gray-500' : 'text-gray-400'} animate-fade-in`}>
                 <Circle className="w-16 h-16 mx-auto mb-4 opacity-50 animate-pulse" />
                 <p className="text-lg">
@@ -1286,20 +1279,9 @@ function TodoApp() {
                    filter === 'active' ? '미완료 할일이 없습니다' :
                    '할일을 추가해보세요'}
                 </p>
-                {!isOnline && (
-                  <p className="text-sm mt-2 text-yellow-500">
-                    오프라인 모드입니다. 온라인 연결 시 동기화됩니다.
-                  </p>
-                )}
               </div>
             )}
 
-            {isSyncing && todos.length === 0 && (
-              <div className={`text-center py-16 transition-colors duration-300 ${isDark ? 'text-gray-500' : 'text-gray-400'} animate-fade-in`}>
-                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                <p className="text-lg">데이터를 불러오는 중...</p>
-              </div>
-            )}
           </div>
 
           {/* 드래그 오버레이 */}

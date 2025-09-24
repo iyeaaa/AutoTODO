@@ -110,23 +110,12 @@ export default function TodoInlineEdit({
       }
     }
 
-    // display_order 계산 (새로운 부모의 자식 중 마지막 순서)
-    let newDisplayOrder = 0;
-    if (editParentId) {
-      const siblings = allTodos.filter(t => t.parent_id === editParentId);
-      newDisplayOrder = siblings.length; // 마지막에 추가
-    } else {
-      const rootSiblings = allTodos.filter(t => !t.parent_id);
-      newDisplayOrder = rootSiblings.length; // 루트 레벨에서 마지막에 추가
-    }
-
     const updates: Partial<Todo> = {
       text: editText.trim(),
       category: editCategory,
       subcategory_id: editSubcategoryId || null,
       due_date: editDueDate || null,
       parent_id: editParentId || null,
-      display_order: newDisplayOrder,
     };
 
     await onSave(updates);

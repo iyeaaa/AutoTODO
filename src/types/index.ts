@@ -6,7 +6,6 @@ export interface Todo {
   subcategory_id?: string | null;
   due_date?: string | null;
   parent_id?: string | null;
-  display_order: number;
   user_id: string;
   created_at: string;
   updated_at: string;
@@ -72,7 +71,6 @@ export interface ReviewTodo {
   subcategory_id?: string | null;
   due_date: string | null;
   parent_id?: string | null;
-  display_order: number;
   selected: boolean;
 }
 
