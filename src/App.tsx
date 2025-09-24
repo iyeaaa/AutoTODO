@@ -40,51 +40,47 @@ function TodoApp() {
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
 
-  // 인증 로딩 중이거나 사용자가 없으면 로딩/로그인 페이지 표시
-  if (loading) {
-    return (
-      <div className={`min-h-screen flex items-center justify-center transition-all duration-500 ${
-        isDark ? 'bg-gray-900' : 'bg-gray-50'
-      }`}>
-        <div className="text-center">
-          <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className={`text-lg ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-            로딩 중...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <LoginPage isDark={isDark} />;
-  }
-
   useEffect(() => {
+    if (!user) return; // 사용자가 없으면 데이터 로딩하지 않음
     const loadData = async () => {
+      console.log('📦 데이터 로딩 시작...');
       setIsSyncing(true);
       try {
+        console.log('🔄 Todos, Categories, Subcategories 로딩 중...');
         const [todos, categories, subcategories] = await Promise.all([
           storage.getTodos(),
           storage.getCategories(),
           storage.getSubCategories()
         ]);
+
+        console.log('📊 로드된 데이터:', {
+          todos: todos.length,
+          categories: categories.length,
+          subcategories: subcategories.length
+        });
+        console.log('📋 Categories:', categories);
+        console.log('📋 Subcategories:', subcategories);
+
         setTodos(todos);
         setCategories(categories);
         setSubcategories(subcategories);
 
         // 첫 번째 카테고리를 기본값으로 설정
         if (categories.length > 0) {
+          console.log('✅ 기본 카테고리 설정:', categories[0].name);
           setNewCategory(categories[0].name);
           // 첫 번째 카테고리의 첫 번째 서브카테고리를 기본값으로 설정
           const firstCategorySubcategories = subcategories.filter(sub => sub.parent_category_id === categories[0].id);
           if (firstCategorySubcategories.length > 0) {
             setNewSubcategoryId(firstCategorySubcategories[0].id);
           }
+        } else {
+          console.log('❌ 카테고리가 없습니다!');
         }
       } catch (error) {
-        console.error('Failed to load data:', error);
+        console.error('❌ Failed to load data:', error);
       } finally {
+        console.log('🏁 데이터 로딩 완료');
         setIsSyncing(false);
       }
     };
@@ -126,7 +122,7 @@ function TodoApp() {
       unsubscribeCategories();
       unsubscribeSubcategories();
     };
-  }, []);
+  }, [user]); // user를 dependency에 추가
 
   const updateDarkModeClass = (dark: boolean) => {
     if (dark) {
@@ -432,6 +428,26 @@ function TodoApp() {
   const handleCancelEdit = () => {
     setEditingTodoId(null);
   };
+
+  // 인증 로딩 중이거나 사용자가 없으면 로딩/로그인 페이지 표시
+  if (loading) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center transition-all duration-500 ${
+        isDark ? 'bg-gray-900' : 'bg-gray-50'
+      }`}>
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className={`text-lg ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+            로딩 중...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage isDark={isDark} />;
+  }
 
   return (
     <div className={`min-h-screen transition-all duration-500 ease-in-out ${

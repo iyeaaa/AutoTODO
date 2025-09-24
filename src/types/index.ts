@@ -77,5 +77,4 @@ export interface AuthContextType {
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
-  migrateAnonymousData: () => Promise<void>;
 }

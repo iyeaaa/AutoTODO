@@ -36,13 +36,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // 초기 세션 확인
     const initializeAuth = async () => {
       try {
+        console.log('🔍 초기 세션 확인 중...');
         const { data: { session } } = await supabase.auth.getSession();
+        console.log('🔍 세션 결과:', session);
         if (session?.user) {
-          setUser(convertSupabaseUser(session.user));
+          console.log('✅ 사용자 세션 발견:', session.user);
+          const convertedUser = convertSupabaseUser(session.user);
+          console.log('✅ 변환된 사용자:', convertedUser);
+          setUser(convertedUser);
+        } else {
+          console.log('❌ 사용자 세션 없음');
         }
       } catch (error) {
-        console.error('Error getting session:', error);
+        console.error('❌ Error getting session:', error);
       } finally {
+        console.log('🏁 초기 로딩 완료');
         setLoading(false);
       }
     };
@@ -52,23 +60,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // 인증 상태 변화 감지
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        console.log('🔄 인증 상태 변화:', { event, session });
         setLoading(true);
 
         if (session?.user) {
-          setUser(convertSupabaseUser(session.user));
+          console.log('✅ 세션에 사용자 있음:', session.user);
+          const convertedUser = convertSupabaseUser(session.user);
+          console.log('✅ 사용자 설정:', convertedUser);
+          setUser(convertedUser);
 
-          // 최초 로그인 시 익명 데이터 마이그레이션 확인
           if (event === 'SIGNED_IN') {
-            const hasAnonymousData = checkForAnonymousData();
-            if (hasAnonymousData) {
-              // 마이그레이션 필요 플래그 설정
-              localStorage.setItem('needsMigration', 'true');
-            }
+            console.log('🎉 SIGNED_IN 이벤트 발생');
           }
         } else {
+          console.log('❌ 세션에 사용자 없음');
           setUser(null);
         }
 
+        console.log('🏁 인증 상태 로딩 완료');
         setLoading(false);
       }
     );
@@ -76,19 +85,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const checkForAnonymousData = (): boolean => {
-    // 로컬스토리지에 익명 데이터가 있는지 확인
-    const todos = localStorage.getItem('todos-cache');
-    const categories = localStorage.getItem('categories-cache');
-    const subcategories = localStorage.getItem('subcategories-cache');
-
-    return !!(todos || categories || subcategories);
-  };
 
   const signInWithGoogle = async (): Promise<void> => {
     try {
       setLoading(true);
-      const { error } = await supabase.auth.signInWithOAuth({
+      console.log('🚀 구글 로그인 시작...');
+      console.log('🔗 리다이렉트 URL:', `${window.location.origin}`);
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}`,
@@ -99,11 +103,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         },
       });
 
+      console.log('📊 로그인 응답:', { data, error });
+
       if (error) {
+        console.error('❌ 로그인 에러:', error);
         throw error;
       }
+
+      console.log('✅ 로그인 요청 성공');
     } catch (error) {
-      console.error('Error signing in with Google:', error);
+      console.error('❌ Error signing in with Google:', error);
       setLoading(false);
       throw error;
     }
@@ -122,7 +131,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       localStorage.removeItem('todos-cache');
       localStorage.removeItem('categories-cache');
       localStorage.removeItem('subcategories-cache');
-      localStorage.removeItem('needsMigration');
 
       setUser(null);
     } catch (error) {
@@ -133,76 +141,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const migrateAnonymousData = async (): Promise<void> => {
-    if (!user) {
-      throw new Error('User must be logged in to migrate data');
-    }
-
-    try {
-      setLoading(true);
-
-      // 로컬스토리지에서 익명 데이터 가져오기
-      const todosCache = localStorage.getItem('todos-cache');
-      const categoriesCache = localStorage.getItem('categories-cache');
-      const subcategoriesCache = localStorage.getItem('subcategories-cache');
-
-      // 카테고리 마이그레이션
-      if (categoriesCache) {
-        const categories = JSON.parse(categoriesCache);
-        for (const category of categories) {
-          const { id, created_at, updated_at, ...categoryData } = category;
-          await supabase.from('categories').insert({
-            ...categoryData,
-            user_id: user.id,
-          });
-        }
-      }
-
-      // 서브카테고리 마이그레이션
-      if (subcategoriesCache) {
-        const subcategories = JSON.parse(subcategoriesCache);
-        for (const subcategory of subcategories) {
-          const { id, created_at, updated_at, ...subcategoryData } = subcategory;
-          await supabase.from('subcategories').insert({
-            ...subcategoryData,
-            user_id: user.id,
-          });
-        }
-      }
-
-      // 할일 마이그레이션
-      if (todosCache) {
-        const todos = JSON.parse(todosCache);
-        for (const todo of todos) {
-          const { id, created_at, updated_at, ...todoData } = todo;
-          await supabase.from('todos').insert({
-            ...todoData,
-            user_id: user.id,
-          });
-        }
-      }
-
-      // 마이그레이션 완료 후 로컬 캐시 정리
-      localStorage.removeItem('todos-cache');
-      localStorage.removeItem('categories-cache');
-      localStorage.removeItem('subcategories-cache');
-      localStorage.removeItem('needsMigration');
-
-      alert('기존 데이터가 성공적으로 계정에 연결되었습니다!');
-    } catch (error) {
-      console.error('Error migrating anonymous data:', error);
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const value: AuthContextType = {
     user,
     loading,
     signInWithGoogle,
     signOut,
-    migrateAnonymousData,
   };
 
   return (

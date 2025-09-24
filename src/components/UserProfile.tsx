@@ -1,17 +1,14 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { LogOut, User, ChevronDown, Database, AlertCircle } from 'lucide-react';
+import { LogOut, User, ChevronDown } from 'lucide-react';
 
 interface UserProfileProps {
   isDark: boolean;
 }
 
 const UserProfile: React.FC<UserProfileProps> = ({ isDark }) => {
-  const { user, signOut, migrateAnonymousData, loading } = useAuth();
+  const { user, signOut, loading } = useAuth();
   const [showDropdown, setShowDropdown] = useState(false);
-  const [isMigrating, setIsMigrating] = useState(false);
-
-  const needsMigration = localStorage.getItem('needsMigration') === 'true';
 
   const handleSignOut = async () => {
     try {
@@ -22,56 +19,11 @@ const UserProfile: React.FC<UserProfileProps> = ({ isDark }) => {
     }
   };
 
-  const handleMigration = async () => {
-    try {
-      setIsMigrating(true);
-      await migrateAnonymousData();
-      setShowDropdown(false);
-    } catch (error) {
-      console.error('Migration failed:', error);
-      alert('데이터 마이그레이션에 실패했습니다. 다시 시도해주세요.');
-    } finally {
-      setIsMigrating(false);
-    }
-  };
 
   if (!user) return null;
 
   return (
     <div className="relative">
-      {/* 마이그레이션 필요 알림 */}
-      {needsMigration && (
-        <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-50 max-w-md mx-auto p-4 rounded-xl border flex items-start space-x-3 ${
-          isDark
-            ? 'bg-amber-900/20 border-amber-600 text-amber-300'
-            : 'bg-amber-50 border-amber-300 text-amber-800'
-        }`}>
-          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p className="text-sm font-medium mb-2">기존 데이터를 계정에 연결하시겠습니까?</p>
-            <div className="flex space-x-2">
-              <button
-                onClick={handleMigration}
-                disabled={isMigrating}
-                className="px-3 py-1 text-xs bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50"
-              >
-                {isMigrating ? '연결 중...' : '연결하기'}
-              </button>
-              <button
-                onClick={() => localStorage.removeItem('needsMigration')}
-                className={`px-3 py-1 text-xs rounded-lg ${
-                  isDark
-                    ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-              >
-                나중에
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* 사용자 프로필 버튼 */}
       <button
         onClick={() => setShowDropdown(!showDropdown)}
@@ -150,23 +102,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ isDark }) => {
 
               {/* 액션 버튼들 */}
               <div className="space-y-2">
-                {needsMigration && (
-                  <button
-                    onClick={handleMigration}
-                    disabled={isMigrating}
-                    className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-left transition-colors ${
-                      isDark
-                        ? 'hover:bg-gray-700 text-amber-400'
-                        : 'hover:bg-amber-50 text-amber-600'
-                    } disabled:opacity-50`}
-                  >
-                    <Database className="w-4 h-4" />
-                    <span className="text-sm">
-                      {isMigrating ? '데이터 연결 중...' : '기존 데이터 연결하기'}
-                    </span>
-                  </button>
-                )}
-
                 <button
                   onClick={handleSignOut}
                   disabled={loading}

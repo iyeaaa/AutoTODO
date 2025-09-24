@@ -22,31 +22,39 @@ class SupabaseStorage {
 
   async getTodos(): Promise<Todo[]> {
     try {
+      console.log('✅ getTodos 시작, isOnline:', this.isOnline);
+
       if (this.isOnline) {
+        console.log('🔐 사용자 인증 확인 중...');
         const { data: { user } } = await supabase.auth.getUser();
+        console.log('👤 사용자:', user?.id || 'null');
 
         if (!user) {
-          // 인증되지 않은 사용자는 로컬 캐시만 사용
+          console.log('❌ 사용자 없음, 로컬 캐시 사용');
           return this.loadFromLocalStorage();
         }
 
+        console.log('🔍 Supabase에서 할일 조회 중...');
         const { data, error } = await supabase
           .from('todos')
           .select('*')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
 
+        console.log('📊 할일 응답:', { data: data?.length, error });
+
         if (error) throw error;
 
         this.localCache = data || [];
         this.saveToLocalStorage(this.localCache);
+        console.log('✅ 할일 로딩 완료:', this.localCache.length, '개');
         return this.localCache;
       } else {
-        // 오프라인일 때는 로컬 캐시 사용
+        console.log('📱 오프라인 모드, 로컬 캐시 사용');
         return this.loadFromLocalStorage();
       }
     } catch (error) {
-      console.error('Failed to fetch todos:', error);
+      console.error('❌ Failed to fetch todos:', error);
       return this.loadFromLocalStorage();
     }
   }
@@ -225,29 +233,39 @@ class SupabaseStorage {
   // Category CRUD methods
   async getCategories(): Promise<Category[]> {
     try {
+      console.log('🏷️ getCategories 시작, isOnline:', this.isOnline);
+
       if (this.isOnline) {
+        console.log('🔐 사용자 인증 확인 중...');
         const { data: { user } } = await supabase.auth.getUser();
+        console.log('👤 사용자:', user?.id || 'null');
 
         if (!user) {
+          console.log('❌ 사용자 없음, 로컬 스토리지 사용');
           return this.loadCategoriesLocalStorage();
         }
 
+        console.log('🔍 Supabase에서 카테고리 조회 중...');
         const { data, error } = await supabase
           .from('categories')
           .select('*')
           .eq('user_id', user.id)
           .order('display_order', { ascending: true });
 
+        console.log('📊 카테고리 응답:', { data, error });
+
         if (error) throw error;
 
         this.categoriesCache = data || [];
         this.saveCategoriesLocalStorage(this.categoriesCache);
+        console.log('✅ 카테고리 로딩 완료:', this.categoriesCache.length, '개');
         return this.categoriesCache;
       } else {
+        console.log('📱 오프라인 모드, 로컬 스토리지 사용');
         return this.loadCategoriesLocalStorage();
       }
     } catch (error) {
-      console.error('Failed to fetch categories:', error);
+      console.error('❌ Failed to fetch categories:', error);
       return this.loadCategoriesLocalStorage();
     }
   }
@@ -399,23 +417,34 @@ class SupabaseStorage {
   // SubCategory CRUD methods
   async getSubCategories(): Promise<SubCategory[]> {
     try {
+      console.log('📂 getSubCategories 시작, isOnline:', this.isOnline);
+
       if (this.isOnline) {
+        console.log('🔍 Supabase에서 서브카테고리 조회 중...');
+        const { data: { user } } = await supabase.auth.getUser();
+        console.log('👤 사용자:', user?.id || 'null');
+
         const { data, error } = await supabase
           .from('subcategories')
           .select('*')
+          .eq('user_id', user?.id)
           .order('parent_category_id', { ascending: true })
           .order('display_order', { ascending: true });
+
+        console.log('📊 서브카테고리 응답:', { data, error });
 
         if (error) throw error;
 
         this.subcategoriesCache = data || [];
         this.saveSubcategoriesLocalStorage(this.subcategoriesCache);
+        console.log('✅ 서브카테고리 로딩 완료:', this.subcategoriesCache.length, '개');
         return this.subcategoriesCache;
       } else {
+        console.log('📱 오프라인 모드, 로컬 스토리지 사용');
         return this.loadSubcategoriesLocalStorage();
       }
     } catch (error) {
-      console.error('Failed to fetch subcategories:', error);
+      console.error('❌ Failed to fetch subcategories:', error);
       return this.loadSubcategoriesLocalStorage();
     }
   }
