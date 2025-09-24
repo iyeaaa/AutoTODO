@@ -5,9 +5,33 @@ export interface Todo {
   category: string;
   subcategory_id?: string | null;
   due_date?: string | null;
+  parent_id?: string | null;
+  display_order: number;
   user_id: string;
   created_at: string;
   updated_at: string;
+}
+
+// 2-레벨 트리를 위한 헬퍼 타입들
+export type Id = string;
+export type DropZone = 'inside' | 'before' | 'after' | 'root';
+
+export interface TreeState {
+  nodes: Record<Id, Todo>;
+  rootOrder: Id[];                 // 부모들의 순서
+  children: Record<Id, Id[]>;      // key=부모 id, value=그 자식들 순서
+}
+
+export interface DragOperation {
+  dragId: Id;
+  targetId: Id | null;
+  zone: DropZone;
+}
+
+export interface DropIndicator {
+  position: 'before' | 'inside' | 'after' | null;
+  isValid: boolean;
+  targetType: 'parent' | 'child' | null;
 }
 
 export interface Category {
@@ -47,6 +71,8 @@ export interface ReviewTodo {
   category: string;
   subcategory_id?: string | null;
   due_date: string | null;
+  parent_id?: string | null;
+  display_order: number;
   selected: boolean;
 }
 

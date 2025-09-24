@@ -70,6 +70,13 @@ class SupabaseStorage {
 
   async addTodo(todo: Omit<Todo, 'id' | 'created_at' | 'updated_at' | 'user_id'>): Promise<Todo | null> {
     try {
+      // 기본값 설정: display_order는 같은 레벨에서 마지막 순서
+      const todoWithDefaults = {
+        ...todo,
+        display_order: todo.display_order ?? await this.calculateNextDisplayOrder(todo.parent_id || null),
+        parent_id: todo.parent_id ?? null
+      };
+
       if (this.isOnline) {
         const { data: { user } } = await supabase.auth.getUser();
 
@@ -78,7 +85,7 @@ class SupabaseStorage {
         }
 
         const todoWithUser = {
-          ...todo,
+          ...todoWithDefaults,
           user_id: user.id,
         };
 
@@ -96,7 +103,7 @@ class SupabaseStorage {
       } else {
         // 오프라인일 때는 임시 ID로 로컬에 저장
         const tempTodo: Todo = {
-          ...todo,
+          ...todoWithDefaults,
           id: `temp_${Date.now()}`,
           user_id: 'temp_user',
           created_at: new Date().toISOString(),
@@ -188,6 +195,13 @@ class SupabaseStorage {
           throw new Error('사용자 인증이 필요합니다. 다시 로그인해주세요.');
         }
 
+        // 먼저 하위 투두들을 재귀적으로 삭제
+        const childTodos = await this.getChildTodos(id);
+        for (const child of childTodos) {
+          await this.deleteTodo(child.id);
+        }
+
+        // 부모 투두 삭제
         const { error } = await supabase
           .from('todos')
           .delete()
@@ -206,6 +220,12 @@ class SupabaseStorage {
         }
 
         console.log('✅ 할일 삭제 성공:', id);
+      } else {
+        // 오프라인에서도 하위 투두들 재귀적으로 삭제
+        const childTodos = this.getChildTodosLocal(id);
+        for (const child of childTodos) {
+          await this.deleteTodo(child.id);
+        }
       }
 
       this.localCache = this.localCache.filter(todo => todo.id !== id);
@@ -691,6 +711,163 @@ class SupabaseStorage {
     return () => {
       subscription.unsubscribe();
     };
+  }
+
+  // 서브 투두 관련 헬퍼 메서드들
+  async getChildTodos(parentId: string): Promise<Todo[]> {
+    if (this.isOnline) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+
+      const { data, error } = await supabase
+        .from('todos')
+        .select('*')
+        .eq('parent_id', parentId)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Failed to fetch child todos:', error);
+        return [];
+      }
+
+      return data || [];
+    } else {
+      return this.getChildTodosLocal(parentId);
+    }
+  }
+
+  private getChildTodosLocal(parentId: string): Todo[] {
+    return this.localCache.filter(todo => todo.parent_id === parentId);
+  }
+
+  async getAllDescendants(parentId: string): Promise<Todo[]> {
+    const descendants: Todo[] = [];
+    const children = await this.getChildTodos(parentId);
+
+    for (const child of children) {
+      descendants.push(child);
+      const childDescendants = await this.getAllDescendants(child.id);
+      descendants.push(...childDescendants);
+    }
+
+    return descendants;
+  }
+
+  private async calculateNextDisplayOrder(parentId: string | null): Promise<number> {
+    // 같은 레벨의 형제들 중 가장 큰 display_order 찾기
+    const siblings = this.localCache.filter(todo => todo.parent_id === parentId);
+
+    if (siblings.length === 0) return 0;
+
+    const maxOrder = Math.max(...siblings.map(todo => todo.display_order || 0));
+    return maxOrder + 1;
+  }
+
+  // 계층 구조로 투두들을 정렬 (2-레벨 전용)
+  getHierarchicalTodos(todos: Todo[]): Todo[] {
+    const sortedTodos: Todo[] = [];
+
+    // 루트 투두들을 display_order로 정렬
+    const rootTodos = todos
+      .filter(todo => !todo.parent_id)
+      .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+
+    // 각 루트 투두와 그 자식들을 순서대로 추가
+    rootTodos.forEach(rootTodo => {
+      sortedTodos.push(rootTodo);
+
+      // 자식들을 display_order로 정렬하여 추가
+      const children = todos
+        .filter(todo => todo.parent_id === rootTodo.id)
+        .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+
+      sortedTodos.push(...children);
+    });
+
+    return sortedTodos;
+  }
+
+  // 부모-자식 관계의 순환 참조 방지 (2-레벨 전용)
+  async canBeParent(childId: string, potentialParentId: string): Promise<boolean> {
+    // 자기 자신을 부모로 설정하려는 경우
+    if (childId === potentialParentId) {
+      return false;
+    }
+
+    const potentialParent = this.localCache.find(todo => todo.id === potentialParentId);
+
+    // 잠재적 부모가 이미 자식이라면 불가 (2-레벨 제한)
+    if (potentialParent && potentialParent.parent_id) {
+      return false;
+    }
+
+    // 잠재적 부모가 현재 childId의 자식이라면 불가 (순환 참조)
+    if (potentialParent && potentialParent.parent_id === childId) {
+      return false;
+    }
+
+    return true;
+  }
+
+
+  // 완료율 계산 (서브 투두 포함)
+  calculateCompletionStats(todos: Todo[]): { completed: number; total: number; percentage: number } {
+    const completed = todos.filter(todo => todo.completed).length;
+    const total = todos.length;
+    const percentage = total > 0 ? (completed / total) * 100 : 0;
+
+    return { completed, total, percentage };
+  }
+
+  // 특정 부모의 완료율 계산
+  async getParentCompletionStats(parentId: string): Promise<{ completed: number; total: number; percentage: number }> {
+    const children = await this.getChildTodos(parentId);
+    return this.calculateCompletionStats(children);
+  }
+
+  // display_order 기반 배치 업데이트
+  async updateTodosOrder(todos: Todo[]): Promise<boolean> {
+    try {
+      if (!this.isOnline) {
+        // 오프라인일 때는 로컬 캐시만 업데이트
+        todos.forEach(todo => {
+          const index = this.localCache.findIndex(t => t.id === todo.id);
+          if (index !== -1) {
+            this.localCache[index] = { ...this.localCache[index], ...todo };
+          }
+        });
+        this.saveToLocalStorage(this.localCache);
+        return true;
+      }
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
+      // 배치 업데이트
+      for (const todo of todos) {
+        await this.updateTodo(todo.id, {
+          parent_id: todo.parent_id,
+          display_order: todo.display_order
+        });
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Failed to update todos order:', error);
+      return false;
+    }
+  }
+
+  // TreeState와 동기화를 위한 헬퍼
+  async syncTreeState(treeState: any): Promise<boolean> {
+    try {
+      const todos = Object.values(treeState.nodes) as Todo[];
+      return await this.updateTodosOrder(todos);
+    } catch (error) {
+      console.error('Failed to sync tree state:', error);
+      return false;
+    }
   }
 }
 

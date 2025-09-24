@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Check, X, Plus, Moon, Sun, Trash2, Circle, Settings, RefreshCw } from 'lucide-react';
-import type { Todo, Category, SubCategory, ReviewTodo } from './types';
+import { DndContext, DragOverlay } from '@dnd-kit/core';
+import type { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core';
+import { X, Plus, Moon, Sun, Circle, Settings, RefreshCw } from 'lucide-react';
+import type { Todo, Category, SubCategory, ReviewTodo, TreeState, DropZone } from './types';
 import { parseTextToTodos } from './lib/gemini';
 import { storage } from './utils/supabaseStorage';
+import { todosToTreeState, treeStateToTodos, moveTodo, isValidDrop } from './utils/treeOperations';
 import CategoryManagement from './components/CategoryManagement';
 import TodoReviewModal from './components/TodoReviewModal';
-import TodoInlineEdit from './components/TodoInlineEdit';
+import DraggableTreeItem from './components/DraggableTreeItem';
 import LoginPage from './components/LoginPage';
 import UserProfile from './components/UserProfile';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -40,6 +43,9 @@ function TodoApp() {
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState<'connected' | 'disconnected' | 'error'>('connected');
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [treeState, setTreeState] = useState<TreeState>({ nodes: {}, rootOrder: [], children: {} });
+  const [dragOverInfo, setDragOverInfo] = useState<{ targetId: string; zone: DropZone } | null>(null);
 
   useEffect(() => {
     if (!user) return; // 사용자가 없으면 데이터 로딩하지 않음
@@ -183,6 +189,12 @@ function TodoApp() {
     };
   }, [user]); // user를 dependency에 추가
 
+  // todos가 변경될 때마다 TreeState 업데이트
+  useEffect(() => {
+    const newTreeState = todosToTreeState(todos);
+    setTreeState(newTreeState);
+  }, [todos]);
+
   const updateDarkModeClass = (dark: boolean) => {
     if (dark) {
       document.documentElement.classList.add('dark');
@@ -247,6 +259,8 @@ function TodoApp() {
                 category: parsedTodo.category || lastCategoryBeforeAI,
                 subcategory_id: subcategoryId,
                 due_date: parsedTodo.dueDate || null,
+                parent_id: null,
+                display_order: index,
                 selected: true,
               };
             });
@@ -309,7 +323,14 @@ function TodoApp() {
     setLastDueDateBeforeAI('');
   };
 
-  const addSimpleTodo = async () => {
+  const addSimpleTodo = async (parentId?: string) => {
+    // display_order 계산
+    const siblings = parentId
+      ? todos.filter(t => t.parent_id === parentId)
+      : todos.filter(t => !t.parent_id);
+
+    const nextOrder = siblings.length;
+
     // 실시간 구독이 상태를 업데이트하므로 수동 업데이트 제거
     await storage.addTodo({
       text: newTodo,
@@ -317,6 +338,8 @@ function TodoApp() {
       category: newCategory,
       subcategory_id: newSubcategoryId || null,
       due_date: newDueDate || null,
+      parent_id: parentId,
+      display_order: nextOrder,
     });
   };
 
@@ -365,33 +388,104 @@ function TodoApp() {
     }
   };
 
-  const filteredTodos = todos.filter(todo => {
-    // 상태 필터
-    let statusMatch = true;
-    if (filter === 'completed') statusMatch = todo.completed;
-    if (filter === 'active') statusMatch = !todo.completed;
+  // 계층 구조를 고려한 필터링 함수
+  const getFilteredTodosWithHierarchy = () => {
+    // 개별 투두 필터 조건 체크
+    const matchesFilter = (todo: Todo) => {
+      // 상태 필터
+      let statusMatch = true;
+      if (filter === 'completed') statusMatch = todo.completed;
+      if (filter === 'active') statusMatch = !todo.completed;
 
-    // 카테고리 필터
-    let categoryMatch = true;
-    if (categoryFilter !== 'all') categoryMatch = todo.category === categoryFilter;
+      // 카테고리 필터
+      let categoryMatch = true;
+      if (categoryFilter !== 'all') categoryMatch = todo.category === categoryFilter;
 
-    // 서브카테고리 필터
-    let subcategoryMatch = true;
-    if (subcategoryFilter !== 'all') {
-      if (subcategoryFilter === 'none') {
-        // "서브카테고리 없음" 필터 - 서브카테고리가 없는 할일만
-        subcategoryMatch = !todo.subcategory_id;
-      } else {
-        // 특정 서브카테고리 필터
-        subcategoryMatch = todo.subcategory_id === subcategoryFilter;
+      // 서브카테고리 필터
+      let subcategoryMatch = true;
+      if (subcategoryFilter !== 'all') {
+        if (subcategoryFilter === 'none') {
+          subcategoryMatch = !todo.subcategory_id;
+        } else {
+          subcategoryMatch = todo.subcategory_id === subcategoryFilter;
+        }
       }
-    }
 
-    return statusMatch && categoryMatch && subcategoryMatch;
-  });
+      return statusMatch && categoryMatch && subcategoryMatch;
+    };
 
+    // 모든 조상을 가져오는 함수
+    const getAncestors = (todoId: string): Todo[] => {
+      const ancestors: Todo[] = [];
+      let currentTodo = todos.find(t => t.id === todoId);
+
+      while (currentTodo && currentTodo.parent_id) {
+        const parent = todos.find(t => t.id === currentTodo!.parent_id);
+        if (parent) {
+          ancestors.unshift(parent); // 조상 순서로 정렬
+          currentTodo = parent;
+        } else {
+          break;
+        }
+      }
+      return ancestors;
+    };
+
+    // 모든 후손을 가져오는 함수
+    const getDescendants = (todoId: string): Todo[] => {
+      const descendants: Todo[] = [];
+      const stack = [todoId];
+
+      while (stack.length > 0) {
+        const currentId = stack.pop()!;
+        const children = todos.filter(t => t.parent_id === currentId);
+        descendants.push(...children);
+        stack.push(...children.map(child => child.id));
+      }
+      return descendants;
+    };
+
+    // 필터 매치하는 투두들과 관련된 모든 투두들 수집
+    const relevantTodoIds = new Set<string>();
+
+    todos.forEach(todo => {
+      if (matchesFilter(todo)) {
+        // 매치하는 투두
+        relevantTodoIds.add(todo.id);
+
+        // 그 투두의 모든 조상들도 포함 (구조 유지를 위해)
+        getAncestors(todo.id).forEach(ancestor => {
+          relevantTodoIds.add(ancestor.id);
+        });
+
+        // 그 투두의 모든 후손들도 포함 (하위 구조 표시를 위해)
+        getDescendants(todo.id).forEach(descendant => {
+          relevantTodoIds.add(descendant.id);
+        });
+      }
+    });
+
+    return todos.filter(todo => relevantTodoIds.has(todo.id));
+  };
+
+  const filteredTodos = getFilteredTodosWithHierarchy();
+
+  // 계층 구조로 정렬된 투두들
+  const hierarchicalTodos = storage.getHierarchicalTodos(filteredTodos);
+
+  // 루트 투두들만 추출 (자식들은 HierarchicalTodoItem에서 렌더링)
+  const rootTodos = hierarchicalTodos.filter(todo => !todo.parent_id);
+
+  // 각 루트 투두의 자식들을 가져오는 함수
+  const getChildrenOfTodo = (parentId: string): Todo[] => {
+    return hierarchicalTodos.filter(todo => todo.parent_id === parentId);
+  };
+
+  // 서브 투두를 포함한 완료율 계산
   const completedCount = todos.filter(todo => todo.completed).length;
-  const progressPercent = todos.length ? (completedCount / todos.length) * 100 : 0;
+  const totalCount = todos.length;
+  const progressPercent = totalCount ? (completedCount / totalCount) * 100 : 0;
+
 
   const getCategoryInfo = (categoryName: string) => {
     const category = categories.find(cat => cat.name === categoryName);
@@ -484,6 +578,8 @@ function TodoApp() {
         category: reviewTodo.category,
         subcategory_id: reviewTodo.subcategory_id,
         due_date: reviewTodo.due_date,
+        parent_id: reviewTodo.parent_id || null,
+        display_order: reviewTodo.display_order || index,
         user_id: 'temp_user',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -501,6 +597,8 @@ function TodoApp() {
           category: reviewTodo.category,
           subcategory_id: reviewTodo.subcategory_id,
           due_date: reviewTodo.due_date,
+          parent_id: reviewTodo.parent_id || null,
+          display_order: reviewTodo.display_order || 0,
         });
         if (addedTodo) {
           addedTodos.push(addedTodo);
@@ -560,6 +658,113 @@ function TodoApp() {
 
   const handleCancelEdit = () => {
     setEditingTodoId(null);
+  };
+
+  // 서브 투두 추가 함수
+  const handleAddSubTodo = async (parentId: string, text?: string) => {
+    // 부모 투두의 정보를 가져와서 새 서브투두에 설정
+    const parentTodo = todos.find(t => t.id === parentId);
+    if (!parentTodo) return;
+
+    // 부모가 이미 자식이라면 서브투두 추가 불가 (2-레벨 제한)
+    if (parentTodo.parent_id) {
+      alert('자식 할일에는 더 이상 하위 할일을 추가할 수 없습니다.');
+      return;
+    }
+
+    let subTodoText = text;
+
+    // text가 제공되지 않은 경우 프롬프트 사용 (이전 버전 호환)
+    if (!subTodoText) {
+      const promptResult = prompt('서브 할일을 입력하세요:');
+      if (!promptResult || !promptResult.trim()) return;
+      subTodoText = promptResult;
+    }
+
+    // 자식들의 다음 display_order 계산
+    const siblings = todos.filter(t => t.parent_id === parentId);
+    const nextOrder = siblings.length;
+
+    // 서브투두 추가
+    await storage.addTodo({
+      text: subTodoText.trim(),
+      completed: false,
+      category: parentTodo.category,
+      subcategory_id: parentTodo.subcategory_id || null,
+      due_date: null,
+      parent_id: parentId || undefined,
+      display_order: nextOrder,
+    });
+  };
+
+  // 부모-자식 관계 검증 함수 (순환 참조 방지)
+  const validateParentRelation = async (childId: string, potentialParentId: string): Promise<boolean> => {
+    return await storage.canBeParent(childId, potentialParentId);
+  };
+
+  // 드래그 시작 핸들러
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragId(event.active.id as string);
+  };
+
+  // 드래그 오버 핸들러 (실시간 피드백)
+  const handleDragOver = (event: DragOverEvent) => {
+    const { active, over } = event;
+
+    if (!over || active.id === over.id) {
+      setDragOverInfo(null);
+      return;
+    }
+
+    const targetId = over.id as string;
+    const targetTodo = todos.find(t => t.id === targetId);
+
+    if (!targetTodo) {
+      setDragOverInfo(null);
+      return;
+    }
+
+    // 드롭존 결정 (간단한 구현 - 실제로는 마우스 위치 기반)
+    const zone: DropZone = targetTodo.parent_id ? 'after' : 'inside';
+
+    setDragOverInfo({ targetId, zone });
+  };
+
+  // 드래그 종료 핸들러
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    setActiveDragId(null);
+    setDragOverInfo(null);
+
+    if (!over || active.id === over.id) return;
+
+    // 드롭 위치 결정
+    const dragId = active.id as string;
+    const targetId = over.id as string;
+    const zone: DropZone = dragOverInfo?.zone || 'after';
+
+    // 드롭 유효성 검사
+    if (!isValidDrop(treeState, dragId, targetId, zone)) {
+      return;
+    }
+
+    // 새로운 트리 상태 계산
+    const newTreeState = moveTodo(treeState, dragId, targetId, zone);
+    const newTodos = treeStateToTodos(newTreeState);
+
+    // 낙관적 업데이트
+    setTodos(newTodos);
+
+    // 서버에 변경사항 동기화
+    try {
+      await storage.syncTreeState(newTreeState);
+    } catch (error) {
+      console.error('Failed to sync drag and drop changes:', error);
+      // 실패 시 롤백
+      setTodos(todos);
+      alert('순서 변경에 실패했습니다. 다시 시도해주세요.');
+    }
   };
 
   const handleManualRefresh = async () => {
@@ -694,12 +899,22 @@ function TodoApp() {
             isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200 shadow-lg'
           }`}>
             <div className="flex items-center justify-between mb-4">
-              <span className={`text-sm font-medium transition-colors duration-300 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                진행률
-              </span>
-              <span className={`text-sm font-mono transition-colors duration-300 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                {completedCount}/{todos.length}
-              </span>
+              <div>
+                <span className={`text-sm font-medium transition-colors duration-300 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  전체 진행률
+                </span>
+                <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                  모든 할일(서브 할일 포함)
+                </p>
+              </div>
+              <div className="text-right">
+                <span className={`text-sm font-mono transition-colors duration-300 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                  {completedCount}/{totalCount}
+                </span>
+                <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                  {Math.round(progressPercent)}%
+                </p>
+              </div>
             </div>
             <div className={`w-full h-3 rounded-full overflow-hidden ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}>
               <div
@@ -1023,85 +1238,81 @@ function TodoApp() {
           )}
         </div>
 
-        {/* Todo List */}
-        <div className="space-y-3">
-          {filteredTodos.map((todo, index) => (
-            <div
-              key={todo.id}
-              className={`group p-4 sm:p-5 rounded-2xl border transition-all duration-500 transform hover:shadow-xl animate-slide-in-up ${
-                editingTodoId === todo.id
-                  ? isDark
-                    ? 'bg-blue-900/20 border-blue-500 scale-[1.02]'
-                    : 'bg-blue-50 border-blue-300 scale-[1.02]'
-                  : isDark
-                    ? 'bg-gray-800 border-gray-700 hover:bg-gray-750 hover:scale-[1.02]'
-                    : 'bg-white border-gray-200 shadow-sm hover:shadow-lg hover:scale-[1.02]'
-              } ${todo.completed ? 'opacity-75 hover:opacity-90' : ''}`}
-              style={{ animationDelay: `${0.3 + index * 0.05}s` }}
-            >
-              <div className="flex items-start gap-3 sm:gap-4">
-                <button
-                  onClick={() => toggleTodo(todo.id)}
-                  className={`mt-1 flex-shrink-0 w-7 h-7 sm:w-6 sm:h-6 min-h-[44px] sm:min-h-0 rounded-full border-2 flex items-center justify-center transition-all duration-300 transform hover:scale-110 touch-manipulation ${
-                    todo.completed
-                      ? 'bg-gradient-to-r from-green-500 to-emerald-500 border-green-500 text-white animate-check-mark'
-                      : isDark
-                        ? 'border-gray-500 hover:border-green-400 hover:bg-green-400/10'
-                        : 'border-gray-300 hover:border-green-500 hover:bg-green-50'
-                  }`}
-                  disabled={editingTodoId === todo.id}
-                >
-                  {todo.completed && <Check className="w-4 h-4 animate-bounce-in" />}
-                </button>
-
-                <div className="flex-1 min-w-0">
-                  <TodoInlineEdit
-                    todo={todo}
-                    categories={categories}
-                    subcategories={subcategories}
-                    isDark={isDark}
-                    isEditing={editingTodoId === todo.id}
-                    onStartEdit={() => handleStartEdit(todo.id)}
-                    onSave={(updates) => handleSaveEdit(todo.id, updates)}
-                    onCancel={handleCancelEdit}
-                    isSubmitting={isLoading}
-                  />
-                </div>
-
-                <button
-                  onClick={() => deleteTodo(todo.id)}
-                  className="opacity-60 sm:opacity-0 group-hover:opacity-100 p-2 min-h-[44px] text-gray-400 hover:text-red-500 transition-all duration-300 transform hover:scale-110 hover:rotate-12 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 touch-manipulation"
-                  disabled={editingTodoId === todo.id}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+        {/* Todo List with Drag & Drop */}
+        <DndContext
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+        >
+          <div className="space-y-3">
+            {rootTodos.map((todo, index) => (
+              <div
+                key={todo.id}
+                className="animate-slide-in-up"
+                style={{ animationDelay: `${0.3 + index * 0.05}s` }}
+              >
+                <DraggableTreeItem
+                  todo={todo}
+                  children={getChildrenOfTodo(todo.id)}
+                  allTodos={hierarchicalTodos}
+                  categories={categories}
+                  subcategories={subcategories}
+                  isDark={isDark}
+                  editingTodoId={editingTodoId}
+                  onToggle={toggleTodo}
+                  onDelete={deleteTodo}
+                  onStartEdit={handleStartEdit}
+                  onSaveEdit={handleSaveEdit}
+                  onCancelEdit={handleCancelEdit}
+                  onAddSubTodo={handleAddSubTodo}
+                  onValidateParent={validateParentRelation}
+                  isSubmitting={isLoading}
+                  isParent={true}
+                  filterContext={{
+                    filter,
+                    categoryFilter,
+                    subcategoryFilter
+                  }}
+                  dragOverInfo={dragOverInfo}
+                />
               </div>
-            </div>
-          ))}
+            ))}
 
-          {filteredTodos.length === 0 && !isSyncing && (
-            <div className={`text-center py-16 transition-colors duration-300 ${isDark ? 'text-gray-500' : 'text-gray-400'} animate-fade-in`}>
-              <Circle className="w-16 h-16 mx-auto mb-4 opacity-50 animate-pulse" />
-              <p className="text-lg">
-                {filter === 'completed' ? '완료된 할일이 없습니다' :
-                 filter === 'active' ? '미완료 할일이 없습니다' :
-                 '할일을 추가해보세요'}
-              </p>
-              {!isOnline && (
-                <p className="text-sm mt-2 text-yellow-500">
-                  오프라인 모드입니다. 온라인 연결 시 동기화됩니다.
+            {rootTodos.length === 0 && !isSyncing && (
+              <div className={`text-center py-16 transition-colors duration-300 ${isDark ? 'text-gray-500' : 'text-gray-400'} animate-fade-in`}>
+                <Circle className="w-16 h-16 mx-auto mb-4 opacity-50 animate-pulse" />
+                <p className="text-lg">
+                  {filter === 'completed' ? '완료된 할일이 없습니다' :
+                   filter === 'active' ? '미완료 할일이 없습니다' :
+                   '할일을 추가해보세요'}
                 </p>
-              )}
-            </div>
-          )}
+                {!isOnline && (
+                  <p className="text-sm mt-2 text-yellow-500">
+                    오프라인 모드입니다. 온라인 연결 시 동기화됩니다.
+                  </p>
+                )}
+              </div>
+            )}
 
-          {isSyncing && todos.length === 0 && (
-            <div className={`text-center py-16 transition-colors duration-300 ${isDark ? 'text-gray-500' : 'text-gray-400'} animate-fade-in`}>
-              <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-lg">데이터를 불러오는 중...</p>
-            </div>
-          )}
-        </div>
+            {isSyncing && todos.length === 0 && (
+              <div className={`text-center py-16 transition-colors duration-300 ${isDark ? 'text-gray-500' : 'text-gray-400'} animate-fade-in`}>
+                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                <p className="text-lg">데이터를 불러오는 중...</p>
+              </div>
+            )}
+          </div>
+
+          {/* 드래그 오버레이 */}
+          <DragOverlay>
+            {activeDragId ? (
+              <div className={`p-4 rounded-xl shadow-lg border-2 border-blue-500 transform rotate-3 ${
+                isDark ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
+              }`}>
+                {todos.find(t => t.id === activeDragId)?.text}
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
 
         {/* Category Management Modal */}
         <CategoryManagement

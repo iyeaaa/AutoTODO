@@ -6,30 +6,36 @@ interface TodoInlineEditProps {
   todo: Todo;
   categories: Category[];
   subcategories: SubCategory[];
+  allTodos?: Todo[];
   isDark: boolean;
   isEditing: boolean;
   onStartEdit: () => void;
   onSave: (updates: Partial<Todo>) => Promise<void>;
   onCancel: () => void;
   isSubmitting: boolean;
+  onValidateParent?: (childId: string, potentialParentId: string) => Promise<boolean>;
 }
 
 export default function TodoInlineEdit({
   todo,
   categories,
   subcategories,
+  allTodos = [],
   isDark,
   isEditing,
   onStartEdit,
   onSave,
   onCancel,
-  isSubmitting
+  isSubmitting,
+  onValidateParent
 }: TodoInlineEditProps) {
   const [editText, setEditText] = useState(todo.text);
   const [editCategory, setEditCategory] = useState(todo.category);
   const [editSubcategoryId, setEditSubcategoryId] = useState(todo.subcategory_id || '');
   const [editDueDate, setEditDueDate] = useState(todo.due_date || '');
+  const [editParentId, setEditParentId] = useState(todo.parent_id || '');
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  const [parentValidationError, setParentValidationError] = useState('');
 
   const textInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -39,6 +45,29 @@ export default function TodoInlineEdit({
     const category = categories.find(cat => cat.name === editCategory);
     return category && sub.parent_category_id === category.id;
   });
+
+  // 가능한 부모 투두들 필터링 (자기 자신과 자신의 후손들 제외)
+  const getPotentialParents = () => {
+    if (!allTodos.length) return [];
+
+    // 자기 자신과 자신의 후손들을 제외
+    const excludeIds = new Set([todo.id]);
+
+    // 자신의 모든 후손 찾기 (재귀적)
+    const findDescendants = (parentId: string) => {
+      const children = allTodos.filter(t => t.parent_id === parentId);
+      for (const child of children) {
+        excludeIds.add(child.id);
+        findDescendants(child.id);
+      }
+    };
+
+    findDescendants(todo.id);
+
+    return allTodos
+      .filter(t => !excludeIds.has(t.id) && !t.parent_id) // 부모 노드들만 (2-레벨 제한)
+      .sort((a, b) => a.text.localeCompare(b.text));
+  };
 
   useEffect(() => {
     if (isEditing && textInputRef.current) {
@@ -70,11 +99,34 @@ export default function TodoInlineEdit({
   const handleSave = async () => {
     if (!editText.trim()) return;
 
+    // 부모 변경 유효성 검사
+    if (editParentId && editParentId !== todo.parent_id) {
+      if (onValidateParent) {
+        const isValid = await onValidateParent(todo.id, editParentId);
+        if (!isValid) {
+          setParentValidationError('순환 참조가 발생하거나 최대 깊이를 초과합니다.');
+          return;
+        }
+      }
+    }
+
+    // display_order 계산 (새로운 부모의 자식 중 마지막 순서)
+    let newDisplayOrder = 0;
+    if (editParentId) {
+      const siblings = allTodos.filter(t => t.parent_id === editParentId);
+      newDisplayOrder = siblings.length; // 마지막에 추가
+    } else {
+      const rootSiblings = allTodos.filter(t => !t.parent_id);
+      newDisplayOrder = rootSiblings.length; // 루트 레벨에서 마지막에 추가
+    }
+
     const updates: Partial<Todo> = {
       text: editText.trim(),
       category: editCategory,
       subcategory_id: editSubcategoryId || null,
       due_date: editDueDate || null,
+      parent_id: editParentId || null,
+      display_order: newDisplayOrder,
     };
 
     await onSave(updates);
@@ -85,6 +137,8 @@ export default function TodoInlineEdit({
     setEditCategory(todo.category);
     setEditSubcategoryId(todo.subcategory_id || '');
     setEditDueDate(todo.due_date || '');
+    setEditParentId(todo.parent_id || '');
+    setParentValidationError('');
     onCancel();
   };
 
@@ -270,8 +324,47 @@ export default function TodoInlineEdit({
         </div>
       </div>
 
+      {/* 부모 투두 선택 */}
+      <div>
+        <label className={`block text-sm font-medium mb-2 ${
+          isDark ? 'text-gray-300' : 'text-gray-700'
+        }`}>
+          상위 할일 (선택사항)
+        </label>
+        <select
+          value={editParentId}
+          onChange={(e) => {
+            setEditParentId(e.target.value);
+            setParentValidationError('');
+          }}
+          className={`w-full px-3 py-2 rounded-lg border transition-all duration-300 ${
+            parentValidationError
+              ? 'border-red-500'
+              : isDark
+                ? 'bg-gray-700 border-gray-600 text-white'
+                : 'bg-white border-gray-300'
+          }`}
+          disabled={isSubmitting}
+        >
+          <option value="">최상위 할일로 설정</option>
+          {getPotentialParents().map(parentTodo => (
+            <option key={parentTodo.id} value={parentTodo.id}>
+              └ {parentTodo.text}
+            </option>
+          ))}
+        </select>
+        {parentValidationError && (
+          <p className="mt-1 text-sm text-red-500">{parentValidationError}</p>
+        )}
+      </div>
+
       {/* 날짜 선택 */}
       <div>
+        <label className={`block text-sm font-medium mb-2 ${
+          isDark ? 'text-gray-300' : 'text-gray-700'
+        }`}>
+          마감일 (선택사항)
+        </label>
         <input
           type="date"
           value={formatDateForInput(editDueDate)}
