@@ -493,7 +493,7 @@ function TodoApp() {
       setTodos(prevTodos => [...tempTodos, ...prevTodos]);
 
       // Supabase에 순차적으로 추가
-      const addedTodos = [];
+      const addedTodos: Todo[] = [];
       for (const reviewTodo of confirmedTodos) {
         const addedTodo = await storage.addTodo({
           text: reviewTodo.text.trim(),
@@ -908,7 +908,6 @@ function TodoApp() {
                 {categories.map(category => {
                   const categoryTodos = todos.filter(todo => todo.category === category.name);
                   const completedCategoryTodos = categoryTodos.filter(todo => todo.completed);
-                  const incompleteCategoryTodos = categoryTodos.filter(todo => !todo.completed);
                   const categoryInfo = getCategoryInfo(category.name);
 
                   return (
